@@ -5,6 +5,12 @@ import useChat from '@/hooks/use-chat';
 import type { WorkspaceEvent } from '@/hooks/use-chat';
 import type { AgentStep } from './agent-types';
 import { parseAgentSteps } from './parse-agent-steps';
+import { parseWorkspaceView } from './parse-workspace-view';
+import {
+  buildSceneAgentSendData,
+  type SceneAgentSendPayload,
+} from './scene-agent-send-data';
+import type { WorkspaceView } from './agent-workspace-types';
 
 interface UseSceneAgentChatOptions {
   convUid?: string;
@@ -16,13 +22,20 @@ interface UseSceneAgentChatOptions {
 
 interface UseSceneAgentChatResult {
   steps: AgentStep[];
+  workspaceView: WorkspaceView;
   loading: boolean;
   error: string | null;
-  lastInput: string | null;
-  send: (text: string) => void;
+  lastInput: SceneAgentSendPayload | null;
+  send: (payload: SceneAgentSendPayload) => void;
   abort: () => void;
   clearSteps: () => void;
+  clearWorkspaceView: () => void;
 }
+
+// Re-export so callers can import the payload/data types from the hook module.
+export type { SceneAgentSendPayload } from './scene-agent-send-data';
+
+const EMPTY_WORKSPACE_VIEW: WorkspaceView = { planning: null, execution: [], summary: null };
 
 const MAX_RECENT_STEPS = 8;
 
@@ -36,7 +49,8 @@ export function useSceneAgentChat({
   const [steps, setSteps] = useState<AgentStep[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastInput, setLastInput] = useState<string | null>(null);
+  const [lastInput, setLastInput] = useState<SceneAgentSendPayload | null>(null);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>(EMPTY_WORKSPACE_VIEW);
   const abortRef = useRef<AbortController | null>(null);
   const { chat } = useChat({ app_code: appCode || '' });
 
@@ -48,30 +62,52 @@ export function useSceneAgentChat({
     });
   }, []);
 
-  const clearSteps = useCallback(() => setSteps([]), []);
+  const clearSteps = useCallback(() => {
+    setSteps([]);
+    setWorkspaceView(EMPTY_WORKSPACE_VIEW);
+  }, []);
+
+  const clearWorkspaceView = useCallback(() => setWorkspaceView(EMPTY_WORKSPACE_VIEW), []);
 
   const send = useCallback(
-    (text: string) => {
+    (payload: SceneAgentSendPayload) => {
+      const { text } = payload;
       if (!convUid || !text.trim()) return;
       abortRef.current?.abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       setLoading(true);
-      setLastInput(text.trim());
+      setLastInput(payload);
       setError(null);
+
+      const data = buildSceneAgentSendData(payload, { workspaceId, taskId }, convUid);
 
       chat({
         ctrl,
         data: {
-          conv_uid: convUid,
-          user_input: text.trim(),
-          workspace_id: workspaceId,
-          task_id: taskId,
+          conv_uid: data.conv_uid,
+          user_input: data.user_input,
+          workspace_id: data.workspace_id,
+          task_id: data.task_id,
+          ...(data.model_name ? { model_name: data.model_name } : {}),
+          ...(data.chat_in_params ? { chat_in_params: data.chat_in_params } : {}),
+          team_mode: data.team_mode,
+          app_config_code: data.app_config_code,
+          agent_version: data.agent_version,
+          ext_info: data.ext_info,
         },
-        onMessage: (message: string) => {
+        onMessage: (message: unknown) => {
           if (message && typeof message === 'object') {
             const step = parseAgentSteps(message);
-            if (step) appendStep(step);
+            if (step) {
+              appendStep(step);
+              return;
+            }
+            // scene_agent_workspace 结构化 vis
+            const mv = message as Record<string, unknown>;
+            if (mv.render_name === 'scene_agent_workspace' || Array.isArray(mv.execution)) {
+              setWorkspaceView((prev) => parseWorkspaceView(message, prev));
+            }
           }
         },
         onDone: () => {
@@ -105,5 +141,5 @@ export function useSceneAgentChat({
     setLoading(false);
   }, []);
 
-  return { steps, loading, error, lastInput, send, abort, clearSteps };
+  return { steps, workspaceView, loading, error, lastInput, send, abort, clearSteps, clearWorkspaceView };
 }
