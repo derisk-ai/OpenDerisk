@@ -4,7 +4,8 @@ import './scene-workspace.css';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
-import { apiInterceptors, getTaskInfo } from '@/client/api';
+import { useRequest } from 'ahooks';
+import { apiInterceptors, getTaskInfo, listPlaybooks } from '@/client/api';
 import type { WorkspaceEvent } from '@/hooks/use-chat';
 import type { AgentStep, DetailContext } from './agent-types';
 import { AgentWorkspace } from './agent-workspace';
@@ -41,6 +42,12 @@ export function SceneWorkspaceShell({
   const [focusAgentInput, setFocusAgentInput] = useState(false);
   const [switchingTask, setSwitchingTask] = useState(false);
   const prevActiveTaskId = useRef<number | null>(null);
+
+  const { data: playbooks } = useRequest(async () => {
+    if (!workspaceId) return [];
+    const [, data] = await apiInterceptors(listPlaybooks({ workspace_id: Number(workspaceId) }));
+    return (data || []).map((p: any) => ({ playbook_id: p.id, playbook_name: p.name }));
+  }, { refreshDeps: [workspaceId] });
 
   useEffect(() => {
     if (activeTaskId === prevActiveTaskId.current) return;
@@ -194,6 +201,7 @@ export function SceneWorkspaceShell({
           switchingTask={switchingTask}
           convLoadError={convLoadError}
           retryLoadConv={retryLoadConv}
+          playbooks={playbooks}
         />
       </div>
     </div>
