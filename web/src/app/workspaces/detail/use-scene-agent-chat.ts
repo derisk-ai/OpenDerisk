@@ -11,6 +11,7 @@ import {
   type SceneAgentSendPayload,
 } from './scene-agent-send-data';
 import type { WorkspaceView } from './agent-workspace-types';
+import { parseSceneAgentWorkspaceString } from './parse-scene-agent-workspace-string';
 
 interface UseSceneAgentChatOptions {
   convUid?: string;
@@ -38,6 +39,11 @@ export type { SceneAgentSendPayload } from './scene-agent-send-data';
 const EMPTY_WORKSPACE_VIEW: WorkspaceView = { planning: null, execution: [], summary: null };
 
 const MAX_RECENT_STEPS = 8;
+
+// Re-export the fence→object helper so callers can import it from the hook
+// module. The implementation lives in a sibling file to keep it free of the
+// hook's ESM-only `use-chat.ts` dependency (testable in plain Node).
+export { parseSceneAgentWorkspaceString } from './parse-scene-agent-workspace-string';
 
 export function useSceneAgentChat({
   convUid,
@@ -97,17 +103,31 @@ export function useSceneAgentChat({
           ext_info: data.ext_info,
         },
         onMessage: (message: unknown) => {
-          if (message && typeof message === 'object') {
-            const step = parseAgentSteps(message);
+          // Route a parsed vis object: step-list → appendStep, else
+          // scene_agent_workspace → parseWorkspaceView.
+          const routeObject = (obj: object) => {
+            const step = parseAgentSteps(obj);
             if (step) {
               appendStep(step);
               return;
             }
-            // scene_agent_workspace 结构化 vis
-            const mv = message as Record<string, unknown>;
+            const mv = obj as Record<string, unknown>;
             if (mv.render_name === 'scene_agent_workspace' || Array.isArray(mv.execution)) {
-              setWorkspaceView((prev) => parseWorkspaceView(message, prev));
+              setWorkspaceView((prev) => parseWorkspaceView(obj, prev));
             }
+          };
+
+          if (message && typeof message === 'object') {
+            routeObject(message as object);
+            return;
+          }
+          // `use-chat.ts` forwards the vis fence as a STRING when
+          // `ext_info.incremental` is unset (scene-agent case). Extract the
+          // JSON body from the ```scene_agent_workspace fence (or bare JSON)
+          // and feed it through the same routing path as objects.
+          if (typeof message === 'string') {
+            const parsed = parseSceneAgentWorkspaceString(message);
+            if (parsed) routeObject(parsed);
           }
         },
         onDone: () => {
