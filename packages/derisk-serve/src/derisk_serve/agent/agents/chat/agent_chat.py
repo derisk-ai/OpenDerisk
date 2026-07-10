@@ -987,6 +987,28 @@ class AgentChat(BaseComponent, ABC):
         """
         raise NotImplementedError
 
+    @staticmethod
+    def _extract_playbook_command(chat_in_params):
+        """从 chat_in_params 抽取 playbook_command,返回 {playbook_id, playbook_name} 或 None。"""
+        if not chat_in_params:
+            return None
+        for p in chat_in_params:
+            if getattr(p, "param_type", None) == "playbook_command":
+                try:
+                    return json.loads(p.param_value)
+                except (TypeError, ValueError, AttributeError):
+                    return None
+        return None
+
+    @staticmethod
+    def _resolve_vis_render(ext_info, gpt_app):
+        """场景 Agent(workspace_id)默认 scene_agent_workspace,否则走 app layout / gpt_vis_all。"""
+        if ext_info.get("workspace_id"):
+            return "scene_agent_workspace"
+        if gpt_app and gpt_app.layout and gpt_app.layout.chat_layout:
+            return gpt_app.layout.chat_layout.name
+        return "gpt_vis_all"
+
     async def aggregation_chat(
         self,
         conv_id: str,
@@ -1070,14 +1092,58 @@ class AgentChat(BaseComponent, ABC):
 
         _merge_scene_dynamic_context(gpt_app, ext_info)
 
+        # 剧本命令模式:chat_in_params 含 playbook_command 时直接创建任务,跳过 LLM 回合
+        playbook_command = self._extract_playbook_command(chat_in_params)
+        if playbook_command and ext_info.get("workspace_id"):
+            from derisk_serve.workspace.agent_tools._task_creator import (
+                create_task_from_tool,
+            )
+
+            # user_query 此时已解析为 HumanMessage,取其文本内容作为标题(否则回退 playbook_name)
+            _user_text = ""
+            _content = getattr(user_query, "content", None)
+            if isinstance(_content, str):
+                _user_text = _content
+            elif isinstance(_content, list):
+                _user_text = " ".join(
+                    p.get("text", "")
+                    for p in _content
+                    if isinstance(p, dict) and p.get("type") == "text"
+                )
+            result = create_task_from_tool(
+                system_app=self.system_app,
+                workspace_id=int(ext_info["workspace_id"]),
+                user_id=user_code,
+                playbook_id=playbook_command.get("playbook_id"),
+                title=_user_text or playbook_command.get("playbook_name"),
+                description=None,
+            )
+            # 发 task_created workspace event 后直接结束流(与 aggregation_chat 其余
+            # yield 一致的 (task, sse_chunk, agent_conv_id) 三元组形态)
+            yield (
+                None,
+                format_workspace_event(
+                    "task_created",
+                    {
+                        "task_id": result["task_id"],
+                        "title": result["title"],
+                        "status": result["status"],
+                        "playbook_id": result["playbook_id"],
+                        "playbook_name": result["playbook_name"],
+                        "triggered_by": result["triggered_by"],
+                        "workspace_id": int(ext_info["workspace_id"]),
+                    },
+                ),
+                agent_conv_id,
+            )
+            yield None, _format_vis_msg("[DONE]"), agent_conv_id
+            return
+
         # init gpts  memory
         vis_render = ext_info.get("vis_render", None)
         # 如果接口指定使用接口传递，没有指定使用当前应用的布局配置
         if not vis_render:
-            if gpt_app.layout and gpt_app.layout.chat_layout:
-                vis_render = gpt_app.layout.chat_layout.name
-            else:
-                vis_render = "gpt_vis_all"
+            vis_render = self._resolve_vis_render(ext_info, gpt_app)
 
         vis_converter_mng = get_vis_manager()
         vis_protocol = vis_converter_mng.get_by_name(vis_render)(
