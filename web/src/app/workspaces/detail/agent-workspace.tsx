@@ -87,10 +87,10 @@ export function AgentWorkspace({
       <div className="ws-agent-workspace__input">
         <AgentChatInput
           ref={inputRef}
-          onSend={send}
+          onSend={(text) => send({ text })}
           loading={loading}
           disabled={!convUid || switchingTask}
-          lastInput={lastInput}
+          lastInput={lastInput?.text ?? null}
           onRetry={lastInput ? () => send(lastInput) : undefined}
         />
       </div>
