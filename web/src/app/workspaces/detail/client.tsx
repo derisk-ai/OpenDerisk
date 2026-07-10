@@ -128,7 +128,10 @@ export default function WorkspaceDetailPage() {
   return (
     <div className="ws-page">
       <div className="ws-page-bg" />
-      <div className="ws-page-content ws-page-content--fluid" style={{ paddingTop: 16, paddingBottom: 16 }}>
+      <div
+        className="ws-page-content ws-page-content--fluid"
+        style={{ paddingTop: 16, paddingBottom: 16, height: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', gap: 16 }}
+      >
         <div className="ws-console-header">
           <div className="ws-console-header-left">
             <div className="ws-console-avatar"><AppstoreOutlined /></div>

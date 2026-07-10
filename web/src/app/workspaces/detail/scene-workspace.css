@@ -2,8 +2,8 @@
   display: grid;
   grid-template-columns: 280px 1fr 420px;
   gap: 16px;
-  height: calc(100vh - 140px);
-  min-height: 600px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
 }
 
