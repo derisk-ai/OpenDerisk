@@ -1,11 +1,10 @@
 'use client';
 
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
-import { Button, Input, Popover } from 'antd';
+import { Button, Input, Popover, Select } from 'antd';
 import { SendOutlined, ReloadOutlined, PaperClipOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import { apiInterceptors, getModelList, postChatModeParamsFileLoad } from '@/client/api';
-import { getFileIcon, formatFileSize } from '@/utils/fileUtils';
 import { transformFileUrl } from '@/utils';
 import type { IModelData } from '@/types/model';
 import type { AgentWorkspaceInputHandle, PlaybookCommand } from './agent-workspace-types';
@@ -160,6 +159,15 @@ export const AgentWorkspaceInput = forwardRef<AgentWorkspaceInputHandle, AgentWo
           />
         </Popover>
         <div className="ws-agent-input__actions">
+          <Select
+            size="small"
+            style={{ minWidth: 140 }}
+            value={selectedModel}
+            onChange={setSelectedModel}
+            disabled={disabled || loading}
+            options={modelList.map(m => ({ label: m.model_name, value: m.model_name }))}
+            placeholder="模型选择"
+          />
           <Button icon={<PaperClipOutlined />} disabled={!convUid || disabled} onClick={() => fileInputRef.current?.click()} />
           <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => { for (const f of Array.from(e.target.files || [])) handleFileUpload(f); e.target.value = ''; }} />
           {lastInput && onRetry && !loading && <Button icon={<ReloadOutlined />} onClick={onRetry} disabled={disabled} title="重试" />}
