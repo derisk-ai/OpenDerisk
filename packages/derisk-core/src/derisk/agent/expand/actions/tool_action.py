@@ -1118,10 +1118,53 @@ class ToolAction(Action[ToolInput]):
                     arguments["context"] = saved_context
                     logger.debug(f"Restored context for sandbox tool: {tool_info.name}")
 
-                if tool_info.is_async:
-                    raw_content = await tool_info.async_execute(**arguments)
-                else:
-                    raw_content = tool_info.execute(**arguments)
+                # RFC-006 Stage 3:Route B 分流 —— 非 builtin executor_id 的工具经
+                # ToolDispatcher.dispatch → registry.get(executor_id) → Capability.execute。
+                # 判据:agent 有 _tool_dispatcher 且 snapshot 中该 tool 的 ToolEntry.executor_id
+                # 非 BUILTIN_EXECUTOR_ID。无 dispatcher / 无 entry / BUILTIN → 走 Route A 现有
+                # 直调,行为与改造前完全一致(存量工具一律 BUILTIN,不受影响)。
+                route_b_used = False
+                dispatcher = getattr(agent, "_tool_dispatcher", None) if agent else None
+                snap = getattr(agent, "_last_snapshot", None) if agent else None
+                if dispatcher is not None and snap is not None:
+                    try:
+                        from derisk.core.interface.resource.dispatcher import (
+                            ToolDispatcher as _ToolDispatcher,
+                        )
+                        from derisk.core.interface.resource.tool_entry import (
+                            BUILTIN_EXECUTOR_ID as _BUILTIN_ID,
+                        )
+
+                        idx = _ToolDispatcher.build_index(snap.all_tools())
+                        entry = idx.get(tool_info.name)
+                        entry_exec_id = getattr(entry, "executor_id", None) if entry else None
+                        if entry_exec_id and entry_exec_id != _BUILTIN_ID:
+                            conv_id = agent.agent_context.conv_id
+                            dispatch_result = await dispatcher.dispatch(
+                                tool_name=tool_info.name,
+                                args=arguments,
+                                conv_id=conv_id,
+                                entries=snap.all_tools(),
+                            )
+                            if dispatch_result.success:
+                                raw_content = dispatch_result.result
+                            else:
+                                raise Exception(dispatch_result.error or "dispatch failed")
+                            route_b_used = True
+                    except Exception as e:
+                        # Route B 失败不静默吞:记日志并抛,由外层 except 统一处理。
+                        # 但若是 import/解析等基础设施异常,降级到 Route A 兜底(存量兼容)。
+                        logger.warning(
+                            f"Route B dispatch for {tool_info.name} failed, "
+                            f"fallback to Route A: {e}"
+                        )
+                        route_b_used = False
+
+                if not route_b_used:
+                    if tool_info.is_async:
+                        raw_content = await tool_info.async_execute(**arguments)
+                    else:
+                        raw_content = tool_info.execute(**arguments)
 
                 normalized_content, is_success, error_msg = self._normalize_content(
                     raw_content

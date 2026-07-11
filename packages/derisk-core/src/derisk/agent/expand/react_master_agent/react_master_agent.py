@@ -254,6 +254,8 @@ class ReActMasterAgent(ConversableAgent):
     _resource_facade: Optional[Any] = PrivateAttr(default=None)
     # 最近一次 assemble 产出的快照(供 function_calling_params 取 tools 等,S10)
     _last_snapshot: Optional[Any] = PrivateAttr(default=None)
+    # RFC-006 Stage 3:工具派发器(按 ToolEntry.executor_id 路由 Route B → Capability.execute)
+    _tool_dispatcher: Optional[Any] = PrivateAttr(default=None)
 
     # AsyncTaskManager 异步任务管理器（在 preload_resource 中按需初始化）
     _async_task_manager: Optional[Any] = PrivateAttr(default=None)
@@ -860,6 +862,12 @@ class ReActMasterAgent(ConversableAgent):
 
                 facade.executor_provider["sandbox"] = SandboxExecutor(self.sandbox_manager)
             self._resource_facade = facade
+            # Stage 3:构造工具派发器(Route B → Capability.execute)。Route A(builtin)
+            # 不经 dispatcher,仍在 ToolAction._execute_tool 主路径直调;故不设
+            # builtin_executor 回调。仅非 BUILTIN executor_id 的工具走 dispatcher。
+            from derisk.core.interface.resource.dispatcher import ToolDispatcher
+
+            self._tool_dispatcher = ToolDispatcher(registry=facade.registry)
         return self._resource_facade
 
     def _register_capability_wrappers(self, facade: Any) -> None:
