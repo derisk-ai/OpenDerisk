@@ -76,3 +76,103 @@ def test_facade_wraps_legacy_db():
     assert isinstance(wrapped, DBCapabilityResource)
     contribs = wrapped.declare_db()
     assert any("paydb" in c.content for c in contribs if isinstance(c.content, str))
+
+
+# =========================================================================== #
+# RFC-006 Stage 6:DBCapability 自管理(prepare/fetch/declare/release + 取连接)
+# =========================================================================== #
+def test_db_capability_from_config():
+    from derisk_serve.agent.capabilities.db.capability import DBCapability
+
+    cap = DBCapability.from_config({"db_name": "paydb", "db_id": 42})
+    assert isinstance(cap, DBCapability)
+    assert cap.db_name == "paydb"
+    assert cap.capability_id == "db:42"
+    assert cap.executor_id == "db:42"
+
+
+def test_db_capability_from_legacy_reuses_connector():
+    """from_legacy 复用旧实例已建的 connector(不重复建连接),状态 READY。"""
+    from derisk.core.interface.resource.executor import ExecutorStatus
+    from derisk_serve.agent.capabilities.db.capability import DBCapability
+
+    legacy = _make_legacy_db()
+    cap = DBCapability.from_legacy(legacy)
+    assert cap.get_connector() is legacy._connector  # 复用,未重建
+    assert cap._status == ExecutorStatus.READY
+    assert cap.capability_id == "db:42"
+
+
+def test_db_capability_declare_basic_and_placeholder():
+    from derisk.core.interface.resource.data_requirement import DataRequirement
+    from derisk_serve.agent.capabilities.db.capability import DBCapability
+
+    cap = DBCapability(db_name="paydb", db_id=42, db_type="mysql", dialect="mysql")
+    contribs = cap.declare()
+    assert len(contribs) == 2
+    basic, placeholder = contribs
+    assert "paydb" in basic.content and "mysql" in basic.content
+    assert isinstance(placeholder.content, DataRequirement)
+    assert placeholder.content.kind == "db_prompt"
+    assert placeholder.content.executor_id == "db:42"
+
+
+async def test_db_capability_fetch_uses_connector_when_no_spec_service(monkeypatch):
+    """无 spec_service 时 fetch 回退 connector.get_table_names(异步)。"""
+    from derisk_serve.agent.capabilities.db.capability import DBCapability
+
+    cap = DBCapability(db_name="paydb", db_id=42)
+    cap._connector = MagicMock()
+    cap._connector.get_table_names.return_value = ["orders", "users"]
+    # _get_spec_service 返 None(serve 不可用)
+    monkeypatch.setattr(DBCapability, "_get_spec_service", lambda self: None)
+    req = DataRequirement(
+        executor_id="db:42", capability_id="db:42", kind="db_prompt",
+        params={"datasource_id": 42, "db_name": "paydb"},
+    )
+    text = await cap.fetch(req)
+    assert "orders" in text and "users" in text
+
+
+async def test_db_capability_prepare_builds_connector(monkeypatch):
+    """prepare 经 local_db_manager.get_connector 建连接(异步),状态 READY。"""
+    from derisk_serve.agent.capabilities.db.capability import DBCapability
+
+    fake_conn = MagicMock()
+    fake_conn.db_type = "sqlite"
+    fake_conn.dialect = "sqlite"
+    fake_mgr = MagicMock()
+    fake_mgr.get_connector.return_value = fake_conn
+    fake_cfg = MagicMock()
+    fake_cfg.local_db_manager = fake_mgr
+    monkeypatch.setattr("derisk._private.config.Config", lambda: fake_cfg)
+
+    cap = DBCapability(db_name="paydb", db_id=42)
+    await cap.prepare()
+    assert cap._status.value == "ready"
+    assert cap.get_connector() is fake_conn
+    assert cap._db_type == "sqlite"
+
+
+def test_db_capability_get_connector_for_route_a_tools():
+    """折中:Route A DB 工具从 DBCapability.get_connector() 取连接(取代扫 resource_map)。"""
+    from derisk_serve.agent.capabilities.db.capability import DBCapability
+
+    legacy = _make_legacy_db()
+    cap = DBCapability.from_legacy(legacy)
+    assert cap.get_connector() is legacy._connector
+
+
+async def test_facade_flips_legacy_db_to_capability():
+    """旧 DatasourceResource 实例 → facade 翻成 DBCapability(经 provider),declare 出库信息。"""
+    from derisk.agent.capabilities.facade import _CapabilityDeclareAdapter
+    from derisk_serve.agent.capabilities.db import register_capability
+
+    facade = ResourceFacade()
+    register_capability(facade)
+    legacy = _make_legacy_db()
+    wrapped = facade._to_resource_protocol(legacy)
+    assert isinstance(wrapped, _CapabilityDeclareAdapter)
+    contribs = wrapped.declare()
+    assert any("paydb" in c.content for c in contribs if isinstance(c.content, str))
+    assert "db:42" in facade.executor_provider
