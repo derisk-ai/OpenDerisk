@@ -199,3 +199,4 @@ configs/local
 /pilot/datasets/
 /.claude/
 /pilot/dataset/
+.superpowers/
