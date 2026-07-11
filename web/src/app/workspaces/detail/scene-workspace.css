@@ -262,3 +262,280 @@
     max-height: 420px;
   }
 }
+
+/* === Agent workspace renderer (scene agent 右侧步骤/文本展示) === */
+.ws-agent-renderer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ws-agent-renderer__planning {
+  padding: 10px 12px;
+  border: 1px solid var(--ws-border);
+  border-radius: var(--ws-radius-sm);
+  background: var(--ws-accent-light);
+}
+
+.ws-agent-renderer__goal {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ws-ink);
+  margin-bottom: 6px;
+}
+
+.ws-agent-renderer__plan-step {
+  font-size: 12px;
+  color: var(--ws-ink-2);
+  line-height: 1.6;
+}
+
+.ws-agent-renderer__step {
+  border: 1px solid var(--ws-border);
+  border-radius: var(--ws-radius-sm);
+  background: var(--ws-surface);
+  overflow: hidden;
+  transition: border-color var(--ws-transition), background var(--ws-transition);
+  cursor: default;
+}
+
+.ws-agent-renderer__step[role='button'] {
+  cursor: pointer;
+}
+
+.ws-agent-renderer__step[role='button']:hover {
+  border-color: var(--ws-accent);
+}
+
+.ws-agent-renderer__step--running {
+  border-color: rgba(var(--ws-accent-rgb), 0.5);
+  background: rgba(var(--ws-accent-rgb), 0.06);
+  box-shadow: 0 0 0 1px rgba(var(--ws-accent-rgb), 0.15);
+}
+
+/* thinking 步骤: 左侧 accent 竖条 + 思考色 */
+.ws-agent-renderer__step--thinking {
+  border-left: 3px solid var(--ws-accent);
+}
+
+.ws-agent-renderer__step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+}
+
+.ws-agent-renderer__step-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ws-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-agent-renderer__step-spin {
+  color: var(--ws-accent);
+}
+
+.ws-agent-renderer__chevron {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--ws-ink-3);
+  transition: transform var(--ws-transition);
+}
+
+.ws-agent-renderer__chevron--open {
+  transform: rotate(90deg);
+}
+
+.ws-agent-renderer__step-body {
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--ws-border-subtle);
+  margin-top: 4px;
+  padding-top: 10px;
+  font-size: 12px;
+  color: var(--ws-ink-2);
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.ws-agent-renderer__artifact {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: var(--ws-radius-xs);
+  background: var(--ws-bg);
+  border: 1px solid var(--ws-border-subtle);
+  font-family: var(--ws-mono);
+  font-size: 11px;
+  color: var(--ws-ink-2);
+  word-break: break-all;
+}
+
+/* status 图标 */
+.ws-agent-renderer__icon {
+  flex-shrink: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.ws-agent-renderer__icon--running {
+  color: var(--ws-accent);
+}
+
+.ws-agent-renderer__icon--done {
+  color: var(--ws-success);
+}
+
+.ws-agent-renderer__icon--failed {
+  color: var(--ws-danger);
+}
+
+.ws-agent-renderer__dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ws-ink-3);
+  display: inline-block;
+}
+
+/* 类型徽标 */
+.ws-agent-renderer__badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ws-ink-2);
+  background: var(--ws-bg);
+  border: 1px solid var(--ws-border-subtle);
+  line-height: 1.4;
+}
+
+.ws-agent-renderer__badge--tool {
+  color: var(--ws-accent);
+  background: var(--ws-accent-light);
+  border-color: rgba(var(--ws-accent-rgb), 0.25);
+}
+
+.ws-agent-renderer__badge--thinking {
+  color: var(--ws-attention);
+  background: var(--ws-attention-light);
+  border-color: rgba(var(--ws-attention-rgb), 0.25);
+}
+
+/* summary 区(Agent 最终文本) */
+.ws-agent-renderer__summary {
+  padding-top: 12px;
+  border-top: 1px solid var(--ws-border);
+  font-size: 13px;
+  color: var(--ws-ink);
+  line-height: 1.7;
+}
+
+/* 空态引导 */
+.ws-agent-renderer__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--ws-ink-3);
+}
+
+.ws-agent-renderer__empty-icon {
+  font-size: 32px;
+  color: var(--ws-ink-3);
+  margin-bottom: 10px;
+}
+
+.ws-agent-renderer__empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ws-ink-2);
+  margin-bottom: 2px;
+}
+
+.ws-agent-renderer__empty-hint {
+  font-size: 12px;
+  color: var(--ws-ink-3);
+}
+
+/* === scene-task-rail: 方向 B 分层呼吸卡 === */
+.ws-scene-task-rail__header { padding: 12px 14px 10px; border-bottom: 1px solid var(--ws-border); }
+.ws-rail-h-top { display: flex; align-items: baseline; justify-content: space-between; }
+.ws-rail-title { font-size: 13.5px; font-weight: 700; color: var(--ws-ink); }
+.ws-rail-count { font-size: 11px; color: var(--ws-ink-3); font-family: var(--ws-mono); }
+
+.ws-rail-tabs { display: flex; gap: 4px; margin-top: 10px; overflow-x: auto; padding-bottom: 2px; }
+.ws-rail-tab {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; font-weight: 500; color: var(--ws-ink-2);
+  padding: 4px 9px; border-radius: 999px; white-space: nowrap; cursor: pointer;
+  border: 1px solid transparent; transition: all .15s; flex-shrink: 0;
+}
+.ws-rail-tab:hover { background: var(--ws-bg); color: var(--ws-ink); }
+.ws-rail-tab--on { background: var(--ws-accent-light); color: var(--ws-accent); border-color: rgba(var(--ws-accent-rgb), .22); font-weight: 600; }
+.ws-rail-bd {
+  font-size: 10px; font-weight: 600; min-width: 16px; text-align: center;
+  padding: 0 5px; border-radius: 999px; background: rgba(100,116,139,.14); color: var(--ws-ink-2);
+}
+.ws-rail-tab--on .ws-rail-bd { background: var(--ws-accent); color: #fff; }
+.ws-rail-bd--zero { opacity: .45; }
+
+.ws-scene-task-rail__search { margin: 10px 12px 8px; }
+.ws-scene-task-rail__list { flex: 1; overflow-y: auto; padding: 0 12px 12px; }
+.ws-scene-task-rail__list::-webkit-scrollbar { width: 5px; }
+.ws-scene-task-rail__list::-webkit-scrollbar-thumb { background: var(--ws-border); border-radius: 4px; }
+
+.ws-rail-empty { padding: 40px 16px; text-align: center; color: var(--ws-ink-3); }
+.ws-rail-empty-t { font-size: 12.5px; font-weight: 600; color: var(--ws-ink-2); margin-bottom: 3px; }
+.ws-rail-empty-h { font-size: 11px; color: var(--ws-ink-3); line-height: 1.5; }
+
+.ws-rail-card {
+  background: var(--ws-surface); border: 1px solid var(--ws-border);
+  border-radius: 10px; margin-bottom: 8px; cursor: pointer; transition: all .18s;
+}
+.ws-rail-card:hover { border-color: var(--ws-accent); box-shadow: 0 3px 10px rgba(var(--ws-accent-rgb), .1); }
+.ws-rail-card--active { border-color: var(--ws-accent); box-shadow: 0 0 0 2px rgba(var(--ws-accent-rgb), .2); }
+.ws-rail-card--int { background: var(--ws-attention-light); border-color: rgba(var(--ws-attention-rgb), .3); }
+
+.ws-rail-card-head { display: flex; align-items: center; gap: 7px; padding: 9px 12px 0; }
+.ws-rail-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; }
+.ws-rail-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; background: var(--ws-ink-3); }
+.ws-rail-status--running { color: var(--ws-accent); }
+.ws-rail-status--running .ws-rail-dot { background: var(--ws-accent); box-shadow: 0 0 0 3px rgba(var(--ws-accent-rgb), .14); animation: ws-rail-pulse 1.6s ease-in-out infinite; }
+@keyframes ws-rail-pulse { 50% { box-shadow: 0 0 0 5px rgba(var(--ws-accent-rgb), .05); } }
+.ws-rail-status--awaiting_human, .ws-rail-status--pending_trigger { color: var(--ws-attention); }
+.ws-rail-status--awaiting_human .ws-rail-dot, .ws-rail-status--pending_trigger .ws-rail-dot { background: var(--ws-attention); box-shadow: 0 0 0 3px rgba(var(--ws-attention-rgb), .14); }
+.ws-rail-status--delivered, .ws-rail-status--closed { color: var(--ws-success); }
+.ws-rail-status--delivered .ws-rail-dot, .ws-rail-status--closed .ws-rail-dot { background: var(--ws-success); }
+.ws-rail-status--failed, .ws-rail-status--blocked { color: var(--ws-danger); }
+.ws-rail-status--failed .ws-rail-dot, .ws-rail-status--blocked .ws-rail-dot { background: var(--ws-danger); }
+.ws-rail-status--draft { color: var(--ws-ink-3); }
+
+.ws-rail-pb {
+  display: inline-flex; align-items: center; font-size: 10px; font-weight: 500;
+  color: var(--ws-accent); background: var(--ws-accent-light);
+  border: 1px solid rgba(var(--ws-accent-rgb), .2);
+  padding: 2px 7px; border-radius: 999px; max-width: 120px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ws-rail-elapsed { margin-left: auto; font-size: 10px; color: var(--ws-ink-3); font-family: var(--ws-mono); white-space: nowrap; flex-shrink: 0; }
+
+.ws-rail-ttl { font-size: 13px; font-weight: 600; color: var(--ws-ink); padding: 6px 12px 0; line-height: 1.38; }
+.ws-rail-foot {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px 9px; margin-top: 7px;
+  border-top: 1px solid var(--ws-border-subtle); font-size: 10px; color: var(--ws-ink-2);
+}
+.ws-rail-src { color: var(--ws-ink-2); }
+.ws-rail-tm { color: var(--ws-ink-3); font-family: var(--ws-mono); font-size: 9.5px; }
+.ws-rail-enter { margin-left: auto; color: var(--ws-accent); font-weight: 600; font-size: 10.5px; cursor: pointer; }
+.ws-rail-card:hover .ws-rail-enter { text-decoration: underline; }
