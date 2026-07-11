@@ -1001,6 +1001,16 @@ class AgentChat(BaseComponent, ABC):
         return None
 
     @staticmethod
+    def _extract_model(chat_in_params):
+        """从 chat_in_params 抽取 model 参数,返回 model 名字符串或 None。"""
+        if not chat_in_params:
+            return None
+        for p in chat_in_params:
+            if getattr(p, "param_type", None) == "model":
+                return getattr(p, "param_value", None)
+        return None
+
+    @staticmethod
     def _resolve_vis_render(ext_info, gpt_app):
         """场景 Agent(workspace_id)默认 scene_agent_workspace,否则走 app layout / gpt_vis_all。"""
         if ext_info.get("workspace_id"):
@@ -1110,13 +1120,26 @@ class AgentChat(BaseComponent, ABC):
                     for p in _content
                     if isinstance(p, dict) and p.get("type") == "text"
                 )
+            # 选了剧本必须有任务目标:剧本只指定资源/能力,目标由用户输入。
+            if not _user_text.strip():
+                yield (
+                    None,
+                    _format_vis_msg(
+                        "选择剧本后请输入本次任务目标(剧本只指定资源与能力,目标由你定义)。"
+                    ),
+                    agent_conv_id,
+                )
+                yield None, _format_vis_msg("[DONE]"), agent_conv_id
+                return
+            _model_name = self._extract_model(chat_in_params)
             result = create_task_from_tool(
                 system_app=self.system_app,
                 workspace_id=int(ext_info["workspace_id"]),
                 user_id=user_code,
                 playbook_id=playbook_command.get("playbook_id"),
-                title=_user_text or playbook_command.get("playbook_name"),
+                title=_user_text,
                 description=None,
+                model_name=_model_name,
             )
             # 发 task_created workspace event 后直接结束流(与 aggregation_chat 其余
             # yield 一致的 (task, sse_chunk, agent_conv_id) 三元组形态)

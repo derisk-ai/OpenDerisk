@@ -48,3 +48,19 @@ def test_resolve_vis_render_prefers_scene_for_workspace():
     assert chat._resolve_vis_render(ext_info={"workspace_id": 1}, gpt_app=None) == "scene_agent_workspace"  # type: ignore[attr-defined]
     # 无 workspace_id 且无 app layout 时回退 gpt_vis_all
     assert chat._resolve_vis_render(ext_info={}, gpt_app=None) == "gpt_vis_all"  # type: ignore[attr-defined]
+
+
+def test_extract_model_returns_model_name():
+    """chat_in_params 含 model 参数时能抽到 param_value。"""
+    chat = SimpleAgentChat.__new__(SimpleAgentChat)
+    params = [
+        _make_param("resource", "[]", "common_file"),
+        _make_param("model", "test-provider/test-model"),
+    ]
+    assert chat._extract_model(params) == "test-provider/test-model"  # type: ignore[attr-defined]
+
+
+def test_extract_model_returns_none_when_absent():
+    chat = SimpleAgentChat.__new__(SimpleAgentChat)
+    assert chat._extract_model(None) is None  # type: ignore[attr-defined]
+    assert chat._extract_model([_make_param("resource", "[]")]) is None  # type: ignore[attr-defined]
