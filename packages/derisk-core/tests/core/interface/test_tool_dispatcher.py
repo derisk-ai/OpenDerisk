@@ -12,27 +12,10 @@
 
 import pytest
 
-from derisk.core.interface.executor import (
-    Executor,
-    ExecutorCall,
-    ExecutorRegistry,
-    ExecutorStatus,
-    InMemoryExecutorRegistry,
-    ReleaseReason,
-    ToolDispatchResult,
-    ToolDispatcher,
-)
-from derisk.core.interface.input import (
-    BUILTIN_EXECUTOR_ID,
-    CacheScope,
-    Contribution,
-    Lifetime,
-    Slot,
-    ToolEntry,
-)
-
-
-# --------------------------------------------------------------------------- #
+from derisk.core.interface.resource.executor import Executor, ExecutorCall, ExecutorRegistry, ExecutorStatus, InMemoryExecutorRegistry, ReleaseReason
+from derisk.core.interface.resource.dispatcher import ToolDispatchResult, ToolDispatcher
+from derisk.core.interface.resource.bundle import CacheScope, Contribution, Lifetime, Slot
+from derisk.core.interface.resource.tool_entry import BUILTIN_EXECUTOR_ID, ToolEntry
 # 测试 Executor
 # --------------------------------------------------------------------------- #
 class _MockExecutor(Executor):

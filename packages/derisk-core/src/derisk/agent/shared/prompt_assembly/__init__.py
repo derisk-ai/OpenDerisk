@@ -5,13 +5,16 @@ Prompt Assembly Module - 通用 Prompt 组装模块
 
 核心组件：
 1. PromptRegistry - 模板注册表（支持文件加载和内存注册）
-2. ResourceInjector - 资源注入器（通用接口）
-3. PromptAssembler - 分层组装器（含新旧兼容）
+2. PromptAssembler - 身份层 + 控制层 + 用户 prompt 组装器
+
+注:资源层(sandbox/db/skill/knowledge 声明)已迁移至 RFC-005 ResourceFacade
+(derisk.agent.capabilities.facade)。ResourceInjector / LegacyResourceAdapter
+(存量桥接)随全量迁移已删除。
 
 设计原则：
 - 通用性：内容各自定义
-- 兼容性：智能检测新旧模式，自动适配
-- 可扩展：支持自定义模板目录和注入逻辑
+- 兼容性：身份/控制层仍可独立组装，资源层经 facade
+- 可扩展：支持自定义模板目录
 """
 
 from .prompt_registry import (
@@ -19,12 +22,6 @@ from .prompt_registry import (
     PromptTemplate,
     get_registry,
     register_template,
-)
-from .resource_injector import (
-    ResourceInjector,
-    ResourceContext,
-    ResourceType,
-    create_resource_injector,
 )
 from .prompt_assembler import (
     PromptAssembler,
@@ -41,17 +38,6 @@ from .input_bundle import (  # noqa: E402
     Slot,
     SystemBlock,
 )
-from .resource_protocol import (  # noqa: E402
-    LegacyResourceAdapter,
-    ResourceProtocol,
-)
-from .resource_facade import (  # noqa: E402
-    AgentInputsSnapshot,
-    ResourceFacade,
-    compute_config_hash,
-)
-from .sandbox_resource import SandboxResource  # noqa: E402
-from .resource_protocol import ConsumerRegistry, apply_consumption  # noqa: E402
 
 __all__ = [
     # Registry
@@ -59,16 +45,11 @@ __all__ = [
     "PromptTemplate",
     "get_registry",
     "register_template",
-    # Resource Injector
-    "ResourceInjector",
-    "ResourceContext",
-    "ResourceType",
-    "create_resource_injector",
     # Assembler
     "PromptAssembler",
     "PromptAssemblyConfig",
     "create_prompt_assembler",
-    # InputBundle (RFC-005)
+    # InputBundle (RFC-005,向后兼容 re-export)
     "CacheControlPoint",
     "CacheScope",
     "Contribution",
@@ -77,11 +58,4 @@ __all__ = [
     "Lifetime",
     "Slot",
     "SystemBlock",
-    # ResourceProtocol (RFC-005 §3.3 / S2)
-    "LegacyResourceAdapter",
-    "ResourceProtocol",
-    # ResourceFacade (RFC-005 §3.6 / S9)
-    "AgentInputsSnapshot",
-    "ResourceFacade",
-    "compute_config_hash",
 ]

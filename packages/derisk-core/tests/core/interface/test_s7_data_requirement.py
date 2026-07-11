@@ -1,15 +1,6 @@
 """RFC-005 S7 data_requirement 契约与大库降级策略单测。"""
 
-from derisk.core.interface.input import (
-    DataRequirement,
-    InjectionMode,
-    SMALL_DB_THRESHOLD,
-    MEDIUM_DB_THRESHOLD,
-    injection_mode_for_table_count,
-)
-
-
-# --------------------------------------------------------------------------- #
+from derisk.core.interface.resource.data_requirement import DataRequirement, InjectionMode, SMALL_DB_THRESHOLD, MEDIUM_DB_THRESHOLD, injection_mode_for_table_count
 # injection_mode_for_table_count
 # --------------------------------------------------------------------------- #
 def test_small_db_injects_full():

@@ -4,7 +4,8 @@
 
     List[AgentResource](配置态)
       → ResourceManager.a_build_resource  --- 资源实例化(复用现有入口)
-      → 遍历资源:优先 ResourceProtocol.declare,否则 LegacyResourceAdapter 桥接
+      → 遍历资源:旧 Resource 子类经 _legacy_wrappers 包成 ResourceProtocol,
+        均走原生 declare(无 LegacyResourceAdapter 桥接,已移除)
       → 收集 requires + topological_prepare executor
       → 叠加会话/轮次运行态(SESSION/TURN)
       → freeze → AgentInputsSnapshot(不可变,可缓存/序列化/跨进程)
@@ -20,8 +21,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from derisk.core.interface.input import (
-    BUILTIN_EXECUTOR_ID,
+from derisk.core.interface.resource.bundle import (
     CacheScope,
     Contribution,
     FrozenBundle,
@@ -30,9 +30,12 @@ from derisk.core.interface.input import (
     SCOPE_PRIORITY,
     Slot,
     SystemBlock,
+)
+from derisk.core.interface.resource.tool_entry import (
+    BUILTIN_EXECUTOR_ID,
     ToolEntry,
 )
-from derisk.core.interface.executor import (
+from derisk.core.interface.resource.executor import (
     Executor,
     ExecutorRegistry,
     InMemoryExecutorRegistry,
@@ -40,7 +43,6 @@ from derisk.core.interface.executor import (
     topological_prepare,
 )
 from derisk.core.interface.resource.protocol import ResourceProtocol
-from .legacy_adapter import LegacyResourceAdapter
 
 # Executor工厂映射:executor_id → Executor 实例(由接入层提供)
 ExecutorProvider = Dict[str, Executor]
@@ -109,6 +111,49 @@ class ResourceFacade:
         # executor 工厂(executor_id → Executor),由接入层提供。沙箱/DB 连接器等
         # 在此注册。无则跳过 executor 链路(纯协议层、无执行投影时)。
         self.executor_provider: ExecutorProvider = executor_provider or {}
+        # 双轨迁移:旧 Resource 子类 → capability 包装映射(Step B+ 机制)。
+        # key=旧 Resource 类(or isinstance-able),value=wrapper 工厂(旧实例 → ResourceProtocol)。
+        # capability 目录 register() 时注册,使 facade 遍历 ResourcePack 子资源时
+        # 自动把旧 Resource 包成对应 capability 的 ResourceProtocol 走原生 declare。
+        self._legacy_wrappers: Dict[Any, Any] = {}
+
+    def register_legacy_wrapper(self, key: Any, wrapper_factory: Any) -> None:
+        """注册旧 Resource 子类 → capability 包装工厂(双轨迁移,纯 core)。
+
+        key 可为:
+        - 类(用 isinstance 判定):需 import 该类;serve 层用。
+        - 谓词 callable(sub)->bool(纯属性判断):core 层用,不 import 上层类,
+          避免分层倒置(core→serve 反向依赖)。
+        wrapper_factory(legacy_instance) -> ResourceProtocol 实例。
+
+        facade 遍历 ResourcePack 子资源时,命中 key 的旧实例调 factory 包成
+        新 capability 走原生 declare,脱离 legacy 桥接。
+        首个命中的 key 胜出(注册顺序即优先级)。
+        """
+        list(self._legacy_wrappers.keys())  # noqa: 触发惰性(确保存在)
+        self._legacy_wrappers[key] = wrapper_factory
+
+    def _to_resource_protocol(self, sub: Any) -> Optional[ResourceProtocol]:
+        """把 ResourcePack 子资源转成 ResourceProtocol:本身是则直接返;
+        否则查 _legacy_wrappers 找包装(类或谓词);都无返 None(走 legacy 桥接)。"""
+        if isinstance(sub, ResourceProtocol):
+            return sub
+        for key, factory in self._legacy_wrappers.items():
+            if callable(key) and not isinstance(key, type):
+                # 谓词:key(sub) -> bool,纯属性判断,不 import 上层类
+                try:
+                    if key(sub):
+                        return factory(sub)
+                except Exception:  # noqa: BLE001
+                    continue
+            else:
+                # 类:isinstance 判定(serve 层注册的具体 Resource 类)
+                try:
+                    if isinstance(sub, key):
+                        return factory(sub)
+                except TypeError:
+                    continue
+        return None
 
     # ----------------------------- 主入口 ----------------------------------- #
     async def assemble(
@@ -260,12 +305,15 @@ class ResourceFacade:
                 )
             )
 
-        # L2 资源层:并行 declare 各原生 ResourceProtocol(S16 并行加载)。
+        # L2 资源层:并行 declare 各原生/包装后的 ResourceProtocol(S16 并行加载)。
+        # 双轨迁移:遇旧 Resource 子类经 _to_resource_protocol 包装成 capability。
         required_executor_ids: list = []
         if root is not None:
-            subs = [
-                s for s in _iter_sub_resources(root) if isinstance(s, ResourceProtocol)
-            ]
+            subs: List[ResourceProtocol] = []
+            for sub in _iter_sub_resources(root):
+                wrapped = self._to_resource_protocol(sub)
+                if wrapped is not None:
+                    subs.append(wrapped)
             if subs:
                 results = await asyncio.gather(
                     *[
@@ -274,35 +322,82 @@ class ResourceFacade:
                     ],
                     return_exceptions=False,
                 )
-                declared_any = False
                 for (contribs, reqs) in results:
                     if contribs is None:
                         continue
-                    declared_any = True
                     bundle.extend(contribs)
                     required_executor_ids.extend(reqs)
-            else:
-                declared_any = False
-        else:
-            declared_any = False
-
-        # 桥接兜底:未原生 declare 时,用 LegacyResourceAdapter 整体桥接
-        if not declared_any and agent is not None:
-            from derisk.agent.shared.prompt_assembly.resource_injector import (
-                ResourceContext,
-            )
-            ctx = ResourceContext.from_v1_agent(agent)
-            adapter = LegacyResourceAdapter()
-            legacy_bundle = await adapter.from_context(ctx, resource_root=root)
-            bundle.extend(legacy_bundle.system)
-            bundle.extend(legacy_bundle.tools)
+        # 无子资源 / 全部 declare 为空 → 资源层即为空(无 LegacyResourceAdapter 桥接)。
+        # WorkflowResource/ReasoningEngineResource 无 wrapper 但不出现在部署资源包中,
+        # 普通无资源 agent 亦应得到空资源层而非旧桥接。
 
         # executor 链路:据 requires 收集所需 executor,registry.acquire 触发 prepare。
         executors_ready = await self._prepare_executors(
             conv_id=conv_id, required_ids=required_executor_ids
         )
 
+        # 数据需求回填(Step A):扫描 declare 产出中 content 为 DataRequirement 的
+        # Contribution,调对应 executor.fetch 预取,用结果重建 Contribution 替换占位。
+        await self._resolve_data_requirements(bundle, conv_id=conv_id)
+
         return bundle, required_executor_ids, executors_ready
+
+    async def _resolve_data_requirements(self, bundle: InputBundle, *, conv_id: str) -> None:
+        """扫描 system/tools 槽中 content 为 DataRequirement 的 Contribution,
+        并行调对应 executor.fetch 预取回填,用新 Contribution 替换(Contribution frozen,
+        故重建)。失败则跳过(保留占位)。多 DataRequirement 并行 fetch,不串行阻塞。
+        """
+        from derisk.core.interface.resource.data_requirement import DataRequirement
+
+        async def _resolve_slot(slot_name: str) -> None:
+            src = getattr(bundle, slot_name)
+            if not src:
+                return
+            # 收集需 fetch 的 (index, contribution) 并行单元
+            fetch_tasks = []
+            pending: List[Tuple[int, Contribution]] = []
+            for idx, c in enumerate(src):
+                if isinstance(c.content, DataRequirement):
+                    ex = self.executor_provider.get(c.content.executor_id)
+                    if ex is None:
+                        continue  # 无 executor,保留占位
+                    pending.append((idx, c))
+                    fetch_tasks.append(self._fetch_one(ex, c.content))
+
+            if not pending:
+                return
+            # 并行 fetch(不阻塞事件循环,各 executor 内部 I/O 应已异步化)
+            results = await asyncio.gather(*fetch_tasks, return_exceptions=False)
+
+            # 用结果重建 slot 列表(替换占位)
+            new_list: List[Contribution] = list(src)
+            for (idx, c), result in zip(pending, results):
+                if result is None:
+                    continue  # fetch 失败已记日志,保留占位
+                rendered = result if isinstance(result, str) else str(result)
+                new_list[idx] = Contribution(
+                    capability_id=c.capability_id,
+                    slot=c.slot,
+                    content=rendered,
+                    lifetime=c.lifetime,
+                    cache_scope=c.cache_scope,
+                    order=c.order,
+                )
+            setattr(bundle, slot_name, new_list)
+
+        await asyncio.gather(_resolve_slot("system"), _resolve_slot("tools"))
+
+    @staticmethod
+    async def _fetch_one(executor: Any, requirement: Any) -> Any:
+        """并行 fetch 单元:失败返 None(占位保留),成功返 fetch 结果。"""
+        try:
+            return await executor.fetch(requirement)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"fetch failed for {requirement.kind} "
+                f"(executor={requirement.executor_id}): {e}"
+            )
+            return None
 
     async def _prepare_executors(
         self, *, conv_id: str, required_ids: List[str]

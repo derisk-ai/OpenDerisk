@@ -4,15 +4,9 @@
 (经 snapshot.all_tools)取自同一 snapshot,消除多 dict 两源不一致。
 """
 
-from derisk.core.interface.input import (
-    BUILTIN_EXECUTOR_ID,
-    CacheScope,
-    Contribution,
-    Lifetime,
-    Slot,
-    ToolEntry,
-)
-from derisk.agent.shared.prompt_assembly.resource_facade import ResourceFacade
+from derisk.core.interface.resource.bundle import CacheScope, Contribution, Lifetime, Slot
+from derisk.core.interface.resource.tool_entry import BUILTIN_EXECUTOR_ID, ToolEntry
+from derisk.agent.capabilities.facade import ResourceFacade
 
 
 class _FakeSandboxClient:
@@ -30,7 +24,7 @@ class _FakeAgent:
         snap = getattr(self, "_last_snapshot", None)
         if snap is None:
             return None
-        from derisk.core.interface.executor import ToolDispatcher
+        from derisk.core.interface.resource.dispatcher import ToolDispatcher
 
         idx = ToolDispatcher.build_index(snap.all_tools())
         entry = idx.get(tool_name)

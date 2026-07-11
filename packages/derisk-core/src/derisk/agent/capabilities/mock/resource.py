@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, List
 
-from derisk.core.interface.input import (
+from derisk.core.interface.resource.bundle import (
     CacheScope,
     Contribution,
     Lifetime,

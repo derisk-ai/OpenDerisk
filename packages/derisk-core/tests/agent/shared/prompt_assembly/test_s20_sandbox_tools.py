@@ -8,7 +8,7 @@ executor_id 始终 builtin(工具执行体自处理沙箱/本地切换,选B)。
 """
 
 from derisk.agent.capabilities.sandbox import SandboxResource
-from derisk.core.interface.input import BUILTIN_EXECUTOR_ID
+from derisk.core.interface.resource.tool_entry import BUILTIN_EXECUTOR_ID
 
 
 class _FakeSandboxClient:

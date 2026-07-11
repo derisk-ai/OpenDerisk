@@ -11,20 +11,10 @@ from typing import Any, List
 
 import pytest
 
-from derisk.core.interface.executor import (
-    Executor,
-    ExecutorCall,
-    ExecutorStatus,
-    ReleaseReason,
-)
-from derisk.core.interface.input import (
-    CacheScope,
-    Contribution,
-    Lifetime,
-    Slot,
-)
-from derisk.agent.shared.prompt_assembly.resource_facade import ResourceFacade
-from derisk.agent.shared.prompt_assembly.resource_protocol import ResourceProtocol
+from derisk.core.interface.resource.executor import Executor, ExecutorCall, ExecutorStatus, ReleaseReason
+from derisk.core.interface.resource.bundle import CacheScope, Contribution, Lifetime, Slot
+from derisk.agent.capabilities.facade import ResourceFacade
+from derisk.core.interface.resource.protocol import ResourceProtocol
 
 
 # --------------------------------------------------------------------------- #

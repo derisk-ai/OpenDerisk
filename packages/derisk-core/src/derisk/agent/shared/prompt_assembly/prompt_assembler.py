@@ -27,7 +27,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from .prompt_registry import get_registry, PromptTemplate
-from .resource_injector import ResourceInjector, ResourceContext, ResourceType
 
 if TYPE_CHECKING:
     from derisk.util.template_utils import render
@@ -82,30 +81,13 @@ class PromptAssemblyConfig:
 
 class PromptAssembler:
     """
-    Prompt 组装器 - 分层组装，新旧兼容
+    Prompt 组装器 - 身份层 + 控制层 + 用户 prompt 组装
 
-    用法：
-        # 方式1：直接使用
-        assembler = PromptAssembler()
-        system_prompt = await assembler.assemble_system_prompt(
-            user_system_prompt="你是一个专家...",
-            resource_context=ResourceContext.from_v1_agent(agent),
-            role="AI助手",
-            name="Assistant",
-        )
-
-        # 方式2：使用配置
-        config = PromptAssemblyConfig(language="en")
-        assembler = PromptAssembler(config)
-        system_prompt = await assembler.assemble_system_prompt(...)
-
-    使用方式：
-        ctx = ResourceContext.from_v1_agent(agent)
-        prompt = await assembler.assemble_system_prompt(
-            user_system_prompt=profile.system_prompt_template,
-            resource_context=ctx,
-            **profile_vars
-        )
+    资源层(system 中的 sandbox/db/skill/knowledge 声明)已迁移至 RFC-005
+    ResourceFacade,不再由本类注入。本类负责:
+    - _assemble_identity:身份层(用户 system_prompt_template 或默认模板)
+    - _assemble_control_flow:控制层(workflow/exceptions/delivery,含时间变量)
+    - assemble_user_prompt:user prompt 组装(含历史/问题)
     """
 
     def __init__(
@@ -120,52 +102,8 @@ class PromptAssembler:
         """
         self.config = config or PromptAssemblyConfig()
         self.registry = get_registry()
-        self.resource_injector = ResourceInjector()
 
     # ==================== 核心组装方法 ====================
-
-    async def assemble_system_prompt(
-        self,
-        user_system_prompt: Optional[str] = None,
-        resource_context: Optional[ResourceContext] = None,
-        memory_static_block: Optional[str] = None,
-        **kwargs,
-    ) -> str:
-        """
-        组装完整的 System Prompt
-
-        Args:
-            user_system_prompt: 用户输入的系统提示模板（身份层内容）
-            resource_context: 资源上下文（用于注入资源层）
-            memory_static_block: 静态记忆层（room=profile/preference 的记忆，
-                整个 session 内冻结，保持 prefix cache 稳定）。注入在身份层之后。
-            **kwargs: 模板变量
-
-        Returns:
-            完整的 system prompt
-        """
-        logger.info("Assembling system prompt with layered mode")
-        sections = []
-
-        # Layer 1: 身份层
-        identity_content = await self._assemble_identity(user_system_prompt, **kwargs)
-        sections.append(identity_content)
-
-        # Layer 1.5: 静态记忆层（冻结，保 prefix cache）
-        if memory_static_block and memory_static_block.strip():
-            sections.append(memory_static_block.strip())
-
-        # Layer 2: 动态资源层
-        if resource_context:
-            resource_content = await self._assemble_resources(resource_context)
-            if resource_content:
-                sections.append(resource_content)
-
-        # Layer 3: 系统控制层
-        control_content = await self._assemble_control_flow(**kwargs)
-        sections.append(control_content)
-
-        return self.config.section_separator.join(sections)
 
     async def assemble_user_prompt(
         self,
@@ -250,10 +188,6 @@ class PromptAssembler:
         # 回退到内置默认
         return self._get_builtin_identity(**kwargs)
 
-    async def _assemble_resources(self, ctx: ResourceContext) -> str:
-        """组装资源层 - 动态注入"""
-        return await self.resource_injector.inject_all(ctx)
-
     async def _assemble_control_flow(self, **kwargs) -> str:
         """
         组装系统控制层
@@ -333,148 +267,6 @@ class PromptAssembler:
                     continue
                 result = result.replace(f"{{{{{key}}}}}", str(value))
             return result
-
-    def _build_render_context(
-        self, resource_context: Optional[ResourceContext] = None, **kwargs
-    ) -> Dict[str, Any]:
-        """构建渲染上下文，包含资源变量
-
-        Args:
-            resource_context: 资源上下文，用于提取 sandbox、agents 等变量
-            **kwargs: 其他变量
-        """
-        now_time = kwargs.get("now_time") or datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
-        now = kwargs.get("now") or datetime.now().strftime("%Y-%m-%d")
-
-        context = {
-            "role": kwargs.get("role", ""),
-            "name": kwargs.get("name", ""),
-            "goal": kwargs.get("goal", ""),
-            "now": now,
-            "now_time": now_time,
-            "conv_start_time": kwargs.get("conv_start_time", ""),
-            "user_name": kwargs.get("user_name", ""),
-            "user_id": kwargs.get("user_id", ""),
-            "language": kwargs.get("language", self.config.language),
-            "expand_prompt": kwargs.get("expand_prompt", ""),
-            "agent_name": kwargs.get("agent_name", kwargs.get("name", "")),
-            "max_steps": kwargs.get("max_steps", 20),
-        }
-
-        # 从 resource_context 提取资源变量
-        if resource_context:
-            # 提取沙箱信息
-            sandbox_info = self._extract_sandbox_info(resource_context)
-            context["sandbox"] = sandbox_info
-
-            # 提取 Agent 列表
-            agents_info = self._extract_agents_info(resource_context)
-            context["available_agents"] = agents_info
-
-            # 提取知识库列表
-            knowledge_info = self._extract_knowledge_info(resource_context)
-            context["available_knowledges"] = knowledge_info
-
-            # 提取技能列表
-            skills_info = self._extract_skills_info(resource_context)
-            context["available_skills"] = skills_info
-
-            # 提取数据库列表
-            database_info = self._extract_database_info(resource_context)
-            context["available_databases"] = database_info
-
-        # 合并其他变量（允许覆盖）
-        context.update(kwargs)
-
-        return context
-
-    def _extract_sandbox_info(self, ctx: ResourceContext) -> Dict[str, Any]:
-        """从 ResourceContext 提取沙箱信息"""
-        resources = ctx.get_resources(ResourceType.SANDBOX)
-        if not resources:
-            return {"enable": False, "prompt": ""}
-
-        resource = resources[0]
-        return {
-            "enable": True,
-            "prompt": resource.metadata.get("prompt", ""),
-            "work_dir": resource.metadata.get("work_dir", "/workspace"),
-        }
-
-    def _extract_agents_info(self, ctx: ResourceContext) -> str:
-        """从 ResourceContext 提取 Agent 信息（XML 格式字符串）"""
-        resources = ctx.get_resources(ResourceType.AGENTS)
-        if not resources:
-            return ""
-
-        lines = []
-        for r in resources:
-            lines.append(f"""- <agent>
-  <code>{r.code}</code>
-  <name>{r.name}</name>
-  <description>{r.description}</description>
-</agent>""")
-
-        return "\n".join(lines)
-
-    def _extract_knowledge_info(self, ctx: ResourceContext) -> str:
-        """从 ResourceContext 提取知识库信息（XML 格式字符串）"""
-        resources = ctx.get_resources(ResourceType.KNOWLEDGE)
-        if not resources:
-            return ""
-
-        lines = []
-        for r in resources:
-            lines.append(f"""- <knowledge>
-  <id>{r.code}</id>
-  <name>{r.name}</name>
-  <description>{r.description}</description>
-</knowledge>""")
-
-        return "\n".join(lines)
-
-    def _extract_skills_info(self, ctx: ResourceContext) -> str:
-        """从 ResourceContext 提取技能信息（XML 格式字符串）"""
-        resources = ctx.get_resources(ResourceType.SKILLS)
-        if not resources:
-            return ""
-
-        lines = []
-        for r in resources:
-            path = r.metadata.get("path", "")
-            branch = r.metadata.get("branch", "master")
-            lines.append(f"""- <skill>
-  <name>{r.name}</name>
-  <description>{r.description}</description>
-  <path>{path}</path>
-  <branch>{branch}</branch>
-</skill>""")
-
-        return "\n".join(lines)
-
-    def _extract_database_info(self, ctx: ResourceContext) -> str:
-        """从 ResourceContext 提取数据库信息（XML 格式字符串）"""
-        resources = ctx.get_resources(ResourceType.DATABASE)
-        if not resources:
-            return ""
-
-        lines = []
-        for r in resources:
-            db_name = r.metadata.get("db_name", r.code)
-            db_type = r.metadata.get("db_type", "")
-            dialect = r.metadata.get("dialect", db_type)
-            db_block = f"""- <database>
-  <name>{r.name}</name>
-  <db_name>{db_name}</db_name>
-  <db_type>{db_type}</db_type>
-  <dialect>{dialect}</dialect>
-  <description>{r.description}</description>
-</database>"""
-            lines.append(db_block)
-
-        return "\n".join(lines)
 
     # ==================== 内置默认模板 ====================
 

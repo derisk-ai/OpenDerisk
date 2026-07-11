@@ -7,13 +7,8 @@
 - env Contribution 的 cache_scope/lifetime 语义
 """
 
-from derisk.core.interface.input import (
-    CacheScope,
-    Contribution,
-    Lifetime,
-    Slot,
-)
-from derisk.agent.shared.prompt_assembly.sandbox_resource import SandboxResource
+from derisk.core.interface.resource.bundle import CacheScope, Contribution, Lifetime, Slot
+from derisk.agent.capabilities.sandbox.resource import SandboxResource
 from derisk.agent.capabilities.sandbox.env import get_system_info
 
 

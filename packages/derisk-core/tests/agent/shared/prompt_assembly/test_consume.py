@@ -13,14 +13,9 @@ from typing import Any, List
 
 import pytest
 
-from derisk.core.interface.input import (
-    CacheScope,
-    Contribution,
-    Lifetime,
-    Slot,
-)
-from derisk.agent.shared.prompt_assembly.resource_facade import ResourceFacade
-from derisk.agent.shared.prompt_assembly.resource_protocol import (
+from derisk.core.interface.resource.bundle import CacheScope, Contribution, Lifetime, Slot
+from derisk.agent.capabilities.facade import ResourceFacade
+from derisk.core.interface.resource.protocol import (
     ConsumerRegistry,
     ResourceProtocol,
     apply_consumption,

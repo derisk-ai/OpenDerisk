@@ -91,7 +91,6 @@ from ...core.tools.read_file_tool import read_file  # noqa: F401
 from ...shared.prompt_assembly import (
     PromptAssembler,
     PromptAssemblyConfig,
-    ResourceContext,
     create_prompt_assembler,
 )
 
@@ -842,13 +841,51 @@ class ReActMasterAgent(ConversableAgent):
         """获取 ResourceFacade（懒加载,RFC-005 S10 接入)。
 
         产完整 system 快照(身份/记忆/资源/控制四层 Contribution)+ tools。
-        executor_provider 暂空;沙箱/DB executor 由后续接入层注册(S5 已就绪契约)。
+        注册所有 capability 的双轨 wrapper(Step E):旧 Resource 子类 → 对应
+        capability ResourceProtocol,使 facade 遍历 ResourcePack 时走原生 declare,
+        脱离 LegacyResourceAdapter 桥接。
         """
         if self._resource_facade is None:
             from derisk.agent.capabilities import ResourceFacade
 
-            self._resource_facade = ResourceFacade()
+            facade = ResourceFacade()
+            self._register_capability_wrappers(facade)
+            self._resource_facade = facade
         return self._resource_facade
+
+    def _register_capability_wrappers(self, facade: Any) -> None:
+        """动态发现并注册所有 capability 的双轨 wrapper(协议化,不强引类型)。
+
+        扫描 core 和 serve 两层 capabilities 包目录,每个子包若有 register_wrappers(facade)
+        则调用。agent 不强引用任何具体 capability 类型,只依赖协议接口。
+        注册失败的单个 capability 不阻塞其它(serve 在 core 测试环境可能不可导入)。
+        """
+        import importlib
+        import pkgutil
+
+        for package_name in [
+            "derisk.agent.capabilities",
+            "derisk_serve.agent.capabilities",
+        ]:
+            try:
+                pkg = importlib.import_module(package_name)
+            except Exception as e:  # noqa: BLE001
+                continue  # serve 包不可导入时跳过(core 测试环境)
+            pkg_path = getattr(pkg, "__path__", None)
+            if not pkg_path:
+                continue
+            for _finder, name, ispkg in pkgutil.iter_modules(pkg_path):
+                if not ispkg:
+                    continue
+                full = f"{package_name}.{name}"
+                try:
+                    mod = importlib.import_module(full)
+                    reg = getattr(mod, "register_wrappers", None)
+                    if callable(reg):
+                        reg(facade)
+                        logger.debug(f"registered capability wrappers: {name}")
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"skip capability {name}: {e}")
 
     def resolve_tool_entry(self, tool_name: str) -> Any:
         """S19: 按 tool_name 从 _last_snapshot 统一查工具句柄(执行面与声明面同源)。
@@ -861,7 +898,7 @@ class ReActMasterAgent(ConversableAgent):
         snap = getattr(self, "_last_snapshot", None)
         if snap is None:
             return None
-        from derisk.core.interface.executor import ToolDispatcher
+        from derisk.core.interface.resource.dispatcher import ToolDispatcher
 
         idx = ToolDispatcher.build_index(snap.all_tools())
         entry = idx.get(tool_name)
@@ -1431,10 +1468,9 @@ class ReActMasterAgent(ConversableAgent):
 
         try:
             assembler = self._get_prompt_assembler()
-            resource_ctx = ResourceContext.from_v1_agent(self)
             logger.info(
-                f"ReActMasterAgent: sandbox_manager={getattr(self, 'sandbox_manager', None) is not None}, "
-                f"resource_ctx.sandbox_manager={resource_ctx.sandbox_manager is not None}"
+                f"ReActMasterAgent: sandbox_manager="
+                f"{getattr(self, 'sandbox_manager', None) is not None}"
             )
 
             # 获取用户配置的身份内容
@@ -1522,7 +1558,7 @@ class ReActMasterAgent(ConversableAgent):
                 # 分层组装：身份层 + 静态记忆层 + 资源层 + 控制层
                 # S10: 经 ResourceFacade 产完整 system 快照(四层 Contribution)。
                 # 用现有 PromptAssembler 产身份层/控制层文本(复用渲染,不重写),
-                # 资源层由 facade 经 LegacyResourceAdapter/原生 declare 注入。
+                # 资源层由 facade 经各 capability wrapper 原生 declare 注入(legacy 桥接已移除)。
                 identity_text = await assembler._assemble_identity(
                     user_identity, **render_vars
                 )
@@ -2098,8 +2134,24 @@ class ReActMasterAgent(ConversableAgent):
                 import time as time_mod
                 start_ms = int(time_mod.time() * 1000)
 
+                # 传 system_blocks 到 context.extra,供 Anthropic provider 用
+                # to_anthropic_system 产数组+cache_control;OpenAI provider 忽略(用 str)。
+                _llm_ctx = llm_messages[-1].pop("context", None) if llm_messages else None
+                if self._last_snapshot is not None:
+                    _blocks = self._last_snapshot.full_system_blocks()
+                    if _blocks:
+                        if _llm_ctx is None:
+                            from derisk.core.interface.llm import ModelRequestContext
+                            _llm_ctx = ModelRequestContext()
+                        _extra = getattr(_llm_ctx, "extra", None) or {}
+                        _extra["system_blocks"] = _blocks
+                        if hasattr(_llm_ctx, "extra"):
+                            _llm_ctx.extra = _extra
+                        elif isinstance(_llm_ctx, dict):
+                            _llm_ctx["extra"] = _extra
+
                 async for output in self.llm_client.create(
-                    context=llm_messages[-1].pop("context", None) if llm_messages else None,
+                    context=_llm_ctx,
                     messages=llm_messages,
                     llm_model=llm_model,
                     mist_keys=self.mist_keys,
@@ -3063,7 +3115,7 @@ class ReActMasterAgent(ConversableAgent):
                 prompts += (
                     "以下技能存储在沙箱环境中，路径为沙箱内的绝对路径。\n"
                     f"技能目录：{sandbox_skill_dir}\n"
-                    "使用方式：使用 `Skill` 工具加载技能的 SKILL.md 指令，使用 `skill_exec` 执行技能目录中的脚本。\n\n"
+                    "使用方式：使用 `Skill` 工具加载技能的 SKILL.md 指令，使用 `bash` 工具执行技能目录中的脚本(指定 cwd=技能目录)。\n\n"
                 )
 
             for k, v in self.resource_map.items():

@@ -10,12 +10,14 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from derisk.core.interface.input import (
-    BUILTIN_EXECUTOR_ID,
+from derisk.core.interface.resource.bundle import (
     CacheScope,
     Contribution,
     Lifetime,
     Slot,
+)
+from derisk.core.interface.resource.tool_entry import (
+    BUILTIN_EXECUTOR_ID,
     ToolEntry,
 )
 from derisk.core.interface.resource.protocol import ResourceProtocol

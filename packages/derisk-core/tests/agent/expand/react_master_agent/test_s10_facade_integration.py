@@ -14,14 +14,8 @@ from typing import Any, List
 
 import pytest
 
-from derisk.core.interface.input import (
-    CacheScope,
-    Contribution,
-    Lifetime,
-    Slot,
-    SystemBlock,
-)
-from derisk.agent.shared.prompt_assembly.resource_facade import ResourceFacade
+from derisk.core.interface.resource.bundle import CacheScope, Contribution, Lifetime, Slot, SystemBlock
+from derisk.agent.capabilities.facade import ResourceFacade
 from derisk.agent.expand.react_master_agent.react_master_agent import (
     separator_join_system_blocks,
 )
@@ -209,7 +203,7 @@ async def test_full_system_order_with_sandbox_env():
     USER(记忆,跨会话用户级)优先级高于 ENV(本会话环境),故 USER 在 ENV 前——
     对齐 RFC §3.8 SCOPE_PRIORITY:GLOBAL<USER<ENV<NONE。
     """
-    from derisk.core.interface.input import CacheScope
+    from derisk.core.interface.resource.bundle import CacheScope
     from derisk.agent.shared.prompt_assembly import SandboxResource
 
     facade = ResourceFacade()
