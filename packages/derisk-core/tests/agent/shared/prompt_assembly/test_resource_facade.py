@@ -157,8 +157,8 @@ async def test_no_native_declare_produces_empty_resource_layer():
         agent_id="a1", conv_id="c1", agent_resources=cfg, agent=agent,
     )
     assert isinstance(snap.frozen, FrozenBundle)
-    # _FakeCustomResource 无 wrapper → 整体资源层 system 为空
-    assert snap.frozen.system == []
+    # _FakeCustomResource 无 wrapper → 整体资源层 system 为空(空 tuple)
+    assert not snap.frozen.system
 
 
 # --------------------------------------------------------------------------- #
