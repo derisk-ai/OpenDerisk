@@ -64,3 +64,37 @@ def test_facade_wraps_legacy_toolpack():
     contribs = wrapped.declare_tools()
     assert len(contribs) == 1
     assert contribs[0].content.tool_name == "t1"
+
+# =========================================================================== #
+# RFC-006 Stage 7: MCPCapability 自管理(对象模型统一)
+# =========================================================================== #
+def test_mcp_capability_from_legacy_declares_tools():
+    from derisk_serve.agent.capabilities.mcp import MCPCapability
+    legacy = _make_legacy_pack([_make_tool("s1"), _make_tool("s2")])
+    cap = MCPCapability.from_legacy(legacy)
+    contribs = cap.declare()
+    assert len(contribs) == 2
+    names = {c.content.tool_name for c in contribs}
+    assert names == {"s1", "s2"}
+
+
+async def test_mcp_capability_register_and_facade_flip():
+    """真实 ToolPack(含 FunctionTool)→ facade 翻成 MCPCapability(_is_toolpack_legacy isinstance 命中)。"""
+    from derisk.agent.capabilities.facade import ResourceFacade, _CapabilityDeclareAdapter
+    from derisk_serve.agent.capabilities.mcp import register_capability
+    from derisk.agent.resource import FunctionTool, ToolPack
+
+    def _fn(**k):
+        return "ok"
+
+    _fn.__doc__ = "d"
+    tool = FunctionTool(name="mcp_x", func=_fn, description="d")
+    pack = ToolPack([tool])
+
+    facade = ResourceFacade()
+    register_capability(facade)
+    assert "tool" in facade._capability_factories
+    wrapped = facade._to_resource_protocol(pack)
+    assert isinstance(wrapped, _CapabilityDeclareAdapter)
+    assert wrapped.capability_id == "mcp"
+    assert len(wrapped.declare()) == 1
