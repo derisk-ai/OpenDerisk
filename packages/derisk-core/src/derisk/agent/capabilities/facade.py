@@ -19,7 +19,7 @@ import inspect
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from derisk.core.interface.resource.bundle import (
     CacheScope,
@@ -31,6 +31,7 @@ from derisk.core.interface.resource.bundle import (
     Slot,
     SystemBlock,
 )
+from derisk.core.interface.resource.capability import Capability
 from derisk.core.interface.resource.tool_entry import (
     BUILTIN_EXECUTOR_ID,
     ToolEntry,
@@ -38,6 +39,7 @@ from derisk.core.interface.resource.tool_entry import (
 from derisk.core.interface.resource.executor import (
     Executor,
     ExecutorRegistry,
+    ExecutorStatus,
     InMemoryExecutorRegistry,
     ReleaseReason,
     topological_prepare,
@@ -116,6 +118,22 @@ class ResourceFacade:
         # capability 目录 register() 时注册,使 facade 遍历 ResourcePack 子资源时
         # 自动把旧 Resource 包成对应 capability 的 ResourceProtocol 走原生 declare。
         self._legacy_wrappers: Dict[Any, Any] = {}
+        # RFC-006:自管理 Capability 工厂注册表。type_key(AgentResource.type)→
+        # factory(value:dict, system_app) -> Capability。各 capability 目录
+        # `register_capability(facade)` 时注册,使 facade 能直接从 AgentResource
+        # 配置构造 Capability(不经旧 Resource 子类 + wrapper)。
+        self._capability_factories: Dict[str, Callable[[dict, Any], Capability]] = {}
+
+    def register_capability_factory(
+        self, type_key: str, factory: Callable[[dict, Any], Capability]
+    ) -> None:
+        """注册 type_key → Capability 工厂(RFC-006 自管理能力构造入口)。
+
+        factory(value: dict, system_app) -> Capability。facade 遇此 type_key 的
+        AgentResource 时直接调 factory 产 Capability,跳过旧 Resource 子类构造。
+        与 `_legacy_wrappers` 并存(过渡期);新路径优先,无 factory 才回退 wrapper。
+        """
+        self._capability_factories[type_key] = factory
 
     def register_legacy_wrapper(self, key: Any, wrapper_factory: Any) -> None:
         """注册旧 Resource 子类 → capability 包装工厂(双轨迁移,纯 core)。
@@ -135,9 +153,17 @@ class ResourceFacade:
 
     def _to_resource_protocol(self, sub: Any) -> Optional[ResourceProtocol]:
         """把 ResourcePack 子资源转成 ResourceProtocol:本身是则直接返;
-        否则查 _legacy_wrappers 找包装(类或谓词);都无返 None(走 legacy 桥接)。"""
+        Capability 则适配成 declare 面(并副作用注入 executor 面);
+        否则查 _legacy_wrappers 找包装(类或谓词);都无返 None。"""
         if isinstance(sub, ResourceProtocol):
             return sub
+        if isinstance(sub, Capability):
+            # RFC-006:Capability 自管理 —— 注入执行面到 provider,返 declare 适配器。
+            # 执行面(proto_id=cap.executor_id)供 _prepare_executors/_resolve_data_requirements
+            # 经 executor_provider 查取;declare 面(适配为 ResourceProtocol)供 _declare_one 调用。
+            if sub.executor_id not in self.executor_provider:
+                self.executor_provider[sub.executor_id] = _CapabilityExecutorAdapter(sub)
+            return _CapabilityDeclareAdapter(sub)
         for key, factory in self._legacy_wrappers.items():
             if callable(key) and not isinstance(key, type):
                 # 谓词:key(sub) -> bool,纯属性判断,不 import 上层类
@@ -586,6 +612,66 @@ def _iter_sub_resources(root: Any) -> List[Any]:
         except Exception:  # noqa: BLE001
             return []
     return [root]
+
+
+# --------------------------------------------------------------------------- #
+# Capability 适配器(RFC-006)
+# --------------------------------------------------------------------------- #
+# Capability 不继承 ResourceProtocol/Executor(declare/requires 的 classmethod 形态
+# 与需 self 的执行面冲突),故用这两个适配器鸭子类型介入 facade 现有编排:
+#  - declare 面(_CapabilityDeclareAdapter)被 _declare_one 调用,产 Contribution + requires
+#  - 执行面(_CapabilityExecutorAdapter)注入 executor_provider,被 _prepare_executors/
+#    _resolve_data_requirements 取用(acquire/fetch),及 ToolDispatcher Route B 取用(execute)。
+# 二者共享同一 Capability 实例(Capability 自己持有 live 实例)。
+
+class _CapabilityDeclareAdapter(ResourceProtocol):
+    """把 Capability 的 declare/requires/consume 适配成 ResourceProtocol(供 _declare_one)。"""
+
+    def __init__(self, cap: Capability):
+        self._cap = cap
+
+    @property
+    def capability_id(self) -> str:
+        return self._cap.capability_id
+
+    def declare(self, config: Any = None) -> List[Contribution]:
+        return self._cap.declare(config)
+
+    def requires(self, config: Any = None) -> List[str]:
+        return self._cap.requires(config)
+
+    async def consume(self, call_result: Any) -> List[Contribution]:
+        return await self._cap.consume(call_result)
+
+
+class _CapabilityExecutorAdapter(Executor):
+    """把 Capability 的 prepare/execute/release/fetch 适配成 Executor(供 registry/provider)。"""
+
+    def __init__(self, cap: Capability):
+        self._cap = cap
+        self._status = ExecutorStatus.UNINITIALIZED
+
+    @property
+    def executor_id(self) -> str:
+        return self._cap.executor_id
+
+    @property
+    def status(self) -> ExecutorStatus:
+        return self._status
+
+    async def prepare(self) -> None:
+        await self._cap.prepare()
+        self._status = ExecutorStatus.READY
+
+    async def execute(self, call: Any) -> Any:
+        return await self._cap.execute(call)
+
+    async def release(self, reason: ReleaseReason) -> None:
+        await self._cap.release(reason)
+        self._status = ExecutorStatus.RELEASED
+
+    async def fetch(self, requirement: Any) -> Any:
+        return await self._cap.fetch(requirement)
 
 
 def _hash_optional(text: Optional[str]) -> str:

@@ -10,6 +10,7 @@ Agent 不强引用任何具体 capability 类型,只依赖协议接口,扫描注
 - facade 动态发现两层 capabilities 包目录,调用各 register_wrappers 注册。
 """
 
+from derisk.core.interface.resource.capability import Capability  # noqa: F401
 from derisk.core.interface.resource.protocol import (  # noqa: F401
     ConsumerRegistry,
     ResourceProtocol,
@@ -26,6 +27,7 @@ from .registry import (  # noqa: F401
 )
 
 __all__ = [
+    "Capability",
     "ConsumerRegistry",
     "ResourceProtocol",
     "apply_consumption",
