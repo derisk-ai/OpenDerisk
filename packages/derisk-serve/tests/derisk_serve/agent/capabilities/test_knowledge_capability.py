@@ -10,7 +10,7 @@ from derisk_serve.agent.capabilities.knowledge import KnowledgeCapabilityResourc
 
 
 def _make_legacy_knowledge(spaces_desc="1. name:wiki, knowledge_id:k1, 知识库描述:内部wiki"):
-    return SimpleNamespace(description=spaces_desc)
+    return SimpleNamespace(description=spaces_desc, knowledge_spaces=[])
 
 
 def test_knowledge_declares_spaces_from_legacy():
@@ -78,3 +78,27 @@ def test_facade_wraps_legacy_knowledge():
     assert isinstance(wrapped, KnowledgeCapabilityResource)
     contribs = wrapped.declare_spaces()
     assert "wiki" in contribs[0].content
+
+# =========================================================================== #
+# RFC-006 Stage 7: KnowledgeCapability 自管理(对象模型统一)
+# =========================================================================== #
+def test_knowledge_capability_from_legacy_description():
+    from derisk_serve.agent.capabilities.knowledge import KnowledgeCapability
+    cap = KnowledgeCapability.from_legacy(_make_legacy_knowledge())
+    assert isinstance(cap, KnowledgeCapability)
+    contribs = cap.declare()
+    assert len(contribs) == 1
+    assert "wiki" in contribs[0].content
+
+
+async def test_knowledge_capability_register_and_facade_flip():
+    from derisk.agent.capabilities.facade import ResourceFacade, _CapabilityDeclareAdapter
+    from derisk_serve.agent.capabilities.knowledge import register_capability
+    facade = ResourceFacade()
+    register_capability(facade)
+    assert "knowledge_pack" in facade._capability_factories
+    legacy = _make_legacy_knowledge()
+    wrapped = facade._to_resource_protocol(legacy)
+    assert isinstance(wrapped, _CapabilityDeclareAdapter)
+    assert wrapped.capability_id == "knowledge"
+    assert any("wiki" in c.content for c in wrapped.declare() if isinstance(c.content, str))

@@ -98,3 +98,34 @@ def test_skill_capability_discovered_by_registry():
     reg.discover()
     # skill register() 是 pass(不注册实例,因需 legacy 实例),仅验证目录被扫描不报错
     assert reg is not None
+
+# =========================================================================== #
+# RFC-006 Stage 7: SkillCapability 自管理(对象模型统一)
+# =========================================================================== #
+def test_skill_capability_from_config_pure_config():
+    from derisk_serve.agent.capabilities.skill import SkillCapability
+    cap = SkillCapability.from_config(
+        {"skill_name": "xlsx", "skill_description": "Excel 处理", "skill_path": "/p"}
+    )
+    contribs = cap.declare()
+    assert len(contribs) == 1
+    assert "xlsx" in contribs[0].content
+    assert "Excel 处理" in contribs[0].content
+
+
+async def test_skill_capability_register_and_facade_flip():
+    """真实 AgentSkillResource → facade 翻成 SkillCapability(isinstance 命中)。"""
+    from derisk.agent.capabilities.facade import ResourceFacade, _CapabilityDeclareAdapter
+    from derisk_serve.agent.capabilities.skill import register_capability
+    from derisk.agent.resource.agent_skills import AgentSkillResource
+
+    legacy = AgentSkillResource(
+        name="db-diagnosis", description="DB 诊断", path="/skills/db", owner="dba"
+    )
+    facade = ResourceFacade()
+    register_capability(facade)
+    assert "skill(derisk)" in facade._capability_factories
+    wrapped = facade._to_resource_protocol(legacy)
+    assert isinstance(wrapped, _CapabilityDeclareAdapter)
+    assert wrapped.capability_id == "skill"
+    assert any("db-diagnosis" in c.content for c in wrapped.declare() if isinstance(c.content, str))
