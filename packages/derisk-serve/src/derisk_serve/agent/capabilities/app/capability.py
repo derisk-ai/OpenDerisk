@@ -84,6 +84,27 @@ class AppCapability(Capability):
             description=value.get("app_desc") or value.get("description") or "",
         )
 
+    @classmethod
+    def from_legacy(cls, legacy_instance: Any) -> "AppCapability":
+        """从旧 GptAppResource/AppResource 实例构造(过渡期,Stage 4.5)。
+
+        读旧实例属性(app_name/app_code/app_desc)产 AppCapability,使 facade 遍历时
+        翻成自管理 Capability(修复旧 wrapper declare 空桩)。无 I/O。
+        Stage 9 旧类退役后改用 from_config。
+        """
+        name = (
+            getattr(legacy_instance, "app_name", None)
+            or getattr(legacy_instance, "name", None)
+            or ""
+        )
+        code = getattr(legacy_instance, "app_code", "") or ""
+        desc = (
+            getattr(legacy_instance, "app_desc", "")
+            or getattr(legacy_instance, "description", "")
+            or ""
+        )
+        return cls(app_name=name, app_code=code, description=desc)
+
     @property
     def executor_id(self) -> str:
         # 与 capability_id 解耦:多 app 唯一,避免 executor_provider key 冲突。

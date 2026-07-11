@@ -123,6 +123,13 @@ class ResourceFacade:
         # `register_capability(facade)` 时注册,使 facade 能直接从 AgentResource
         # 配置构造 Capability(不经旧 Resource 子类 + wrapper)。
         self._capability_factories: Dict[str, Callable[[dict, Any], Capability]] = {}
+        # RFC-006 Stage 4.5:过渡期"旧 Resource 实例 → 自管理 Capability"工厂。
+        # key=类 or 谓词(识别旧实例),value=factory(legacy_instance)→Capability。
+        # _to_resource_protocol 优先于 _legacy_wrappers 匹配:旧实例仍由 ResourceManager
+        # 构造(不动),但 facade 遍历时翻成真正的 Capability 对象(经适配器接入
+        # declare/prepare/execute),修复旧 wrapper 的 declare 空桩问题。Stage 9 旧类
+        # 退役后改用 _capability_factories 从 config 直接产,本表随之删除。
+        self._legacy_capability_providers: Dict[Any, Callable[[Any], Capability]] = {}
 
     def register_capability_factory(
         self, type_key: str, factory: Callable[[dict, Any], Capability]
@@ -134,6 +141,18 @@ class ResourceFacade:
         与 `_legacy_wrappers` 并存(过渡期);新路径优先,无 factory 才回退 wrapper。
         """
         self._capability_factories[type_key] = factory
+
+    def register_legacy_capability_provider(
+        self, key: Any, factory: Callable[[Any], Capability]
+    ) -> None:
+        """注册旧 Resource 实例 → 自管理 Capability 工厂(过渡期,Stage 4.5)。
+
+        key 同 register_legacy_wrapper:类(isinstance)或谓词 callable(sub)->bool。
+        factory(legacy_instance) -> Capability。_to_resource_protocol 优先于此
+        匹配(先于 _legacy_wrappers),使旧实例被翻成 Capability 而非旧 ResourceProtocol
+        包装(declare 空桩)。Stage 9 旧类退役时删除,改走 _capability_factories(config)。
+        """
+        self._legacy_capability_providers[key] = factory
 
     def register_legacy_wrapper(self, key: Any, wrapper_factory: Any) -> None:
         """注册旧 Resource 子类 → capability 包装工厂(双轨迁移,纯 core)。
@@ -164,6 +183,33 @@ class ResourceFacade:
             if sub.executor_id not in self.executor_provider:
                 self.executor_provider[sub.executor_id] = _CapabilityExecutorAdapter(sub)
             return _CapabilityDeclareAdapter(sub)
+        # Stage 4.5:优先把旧 Resource 实例翻成自管理 Capability(经适配器接入 declare/
+        # prepare/execute),修复旧 wrapper declare 空桩。匹配先于 _legacy_wrappers。
+        for key, factory in self._legacy_capability_providers.items():
+            if callable(key) and not isinstance(key, type):
+                try:
+                    if key(sub):
+                        cap = factory(sub)
+                        if isinstance(cap, Capability):
+                            if cap.executor_id not in self.executor_provider:
+                                self.executor_provider[cap.executor_id] = (
+                                    _CapabilityExecutorAdapter(cap)
+                                )
+                            return _CapabilityDeclareAdapter(cap)
+                except Exception:  # noqa: BLE001
+                    continue
+            else:
+                try:
+                    if isinstance(sub, key):
+                        cap = factory(sub)
+                        if isinstance(cap, Capability):
+                            if cap.executor_id not in self.executor_provider:
+                                self.executor_provider[cap.executor_id] = (
+                                    _CapabilityExecutorAdapter(cap)
+                                )
+                            return _CapabilityDeclareAdapter(cap)
+                except TypeError:
+                    continue
         for key, factory in self._legacy_wrappers.items():
             if callable(key) and not isinstance(key, type):
                 # 谓词:key(sub) -> bool,纯属性判断,不 import 上层类
