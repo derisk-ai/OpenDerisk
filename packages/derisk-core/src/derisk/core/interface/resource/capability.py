@@ -123,8 +123,36 @@ class Capability(ABC):
         return f"<Capability {self.capability_id}>"
 
 
+class CapabilityPack:
+    """自管理 Capability 的容器(供 facade._iter_sub_resources 遍历)。
+
+    与旧 ``ResourcePack`` 同形状(``is_pack``/``sub_resources``),使 facade
+    ``_iter_sub_resources`` 无需区分新旧 pack。sub_resources 是一批已构造好的
+    ``Capability`` 对象——它们由构造期(agent_chat)用 factory map 从 AgentResource
+    config 产出,绑给 agent;Agent 只持有对象,不再持有 config。
+
+    过渡期:agent 可同时持有旧 ``ResourcePack``(self.resource,供 Stage 8 前的
+    resource_map 消费)与新 ``CapabilityPack``(优先供 facade.assemble 消费)。
+    """
+
+    def __init__(self, capabilities: List["Capability"] | None = None):
+        self._capabilities: List["Capability"] = list(capabilities or [])
+
+    @property
+    def is_pack(self) -> bool:
+        return True
+
+    @property
+    def sub_resources(self) -> List["Capability"]:
+        return self._capabilities
+
+    def add(self, capability: "Capability") -> None:
+        self._capabilities.append(capability)
+
+
 __all__ = [
     "Capability",
+    "CapabilityPack",
     "ExecutorCall",
     "ExecutorStatus",
     "ReleaseReason",
