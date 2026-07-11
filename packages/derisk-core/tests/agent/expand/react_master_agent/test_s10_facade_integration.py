@@ -153,7 +153,7 @@ class _FakeSandboxClient:
 
 async def test_sandbox_env_in_system_snapshot():
     """S14: 沙箱 env 作为 Capability 进 system 快照。"""
-    from derisk.agent.shared.prompt_assembly import SandboxResource
+    from derisk.agent.capabilities.sandbox.resource import SandboxResource
 
     facade = ResourceFacade()
     sb_res = SandboxResource(_FakeSandboxClient("local"), work_dir="/pilot/data")
@@ -204,7 +204,7 @@ async def test_full_system_order_with_sandbox_env():
     对齐 RFC §3.8 SCOPE_PRIORITY:GLOBAL<USER<ENV<NONE。
     """
     from derisk.core.interface.resource.bundle import CacheScope
-    from derisk.agent.shared.prompt_assembly import SandboxResource
+    from derisk.agent.capabilities.sandbox.resource import SandboxResource
 
     facade = ResourceFacade()
     env_contribs = SandboxResource(_FakeSandboxClient("docker"), work_dir="/w").declare_env()

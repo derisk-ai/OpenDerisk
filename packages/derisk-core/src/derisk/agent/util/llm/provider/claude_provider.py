@@ -61,7 +61,25 @@ class ClaudeProvider(LLMProvider):
             params["temperature"] = request.temperature
         
         if system_prompt:
-            params["system"] = system_prompt
+            # RFC-005 S12:若有 system_blocks(动静态分块),产数组式 system + cache_control;
+            # 否则用展平 str(兼容,OpenAI 路径)。
+            _ctx = getattr(request, "context", None)
+            _extra = getattr(_ctx, "extra", None) or {}
+            _blocks = _extra.get("system_blocks") if isinstance(_extra, dict) else None
+            if _blocks:
+                # 数组式 system;最后一个块挂 cache_control(Anthropic prompt caching)
+                _block_dicts = []
+                for idx, blk in enumerate(_blocks):
+                    if not blk.text:
+                        continue
+                    item = {"type": "text", "text": blk.text}
+                    # 最后一个块挂 cache_control(向前缀缓存)
+                    if idx == len(_blocks) - 1:
+                        item["cache_control"] = {"type": "ephemeral"}
+                    _block_dicts.append(item)
+                params["system"] = _block_dicts if _block_dicts else system_prompt
+            else:
+                params["system"] = system_prompt
         
         # Handle image in message
         if params["messages"]:
