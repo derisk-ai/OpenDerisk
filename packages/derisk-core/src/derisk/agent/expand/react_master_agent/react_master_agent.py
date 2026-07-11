@@ -844,12 +844,21 @@ class ReActMasterAgent(ConversableAgent):
         注册所有 capability 的双轨 wrapper(Step E):旧 Resource 子类 → 对应
         capability ResourceProtocol,使 facade 遍历 ResourcePack 时走原生 declare,
         脱离 LegacyResourceAdapter 桥接。
+        RFC-006 Stage 2:注入共享 SandboxExecutor 到 executor_provider,打通
+        capability requires=["sandbox"] 的执行投影接线。
         """
         if self._resource_facade is None:
             from derisk.agent.capabilities import ResourceFacade
 
             facade = ResourceFacade()
             self._register_capability_wrappers(facade)
+            self._register_capability_factories(facade)
+            # Stage 2:注入共享沙箱 executor(非 Capability;平台底座,多 capability 经
+            # requires=["sandbox"] 引用)。无 sandbox_manager 时跳过(纯协议/测试场景)。
+            if getattr(self, "sandbox_manager", None) is not None:
+                from derisk.agent.capabilities.sandbox.executor import SandboxExecutor
+
+                facade.executor_provider["sandbox"] = SandboxExecutor(self.sandbox_manager)
             self._resource_facade = facade
         return self._resource_facade
 
@@ -886,6 +895,41 @@ class ReActMasterAgent(ConversableAgent):
                         logger.debug(f"registered capability wrappers: {name}")
                 except Exception as e:  # noqa: BLE001
                     logger.debug(f"skip capability {name}: {e}")
+
+    def _register_capability_factories(self, facade: Any) -> None:
+        """RFC-006 Stage 2+:动态发现并注册各 capability 的 register_capability。
+
+        镜像 _register_capability_wrappers 的包扫描,但调 `register_capability(facade)`
+        (注册 _capability_factories,type_key→Capability 工厂)而非 register_wrappers。
+        过渡期两者并存:factory 路径(自管理 Capability)优先,无则回退 wrapper。
+        各 capability 子包可选导出 register_capability;无则只跳过,不影响 wrapper 路径。
+        """
+        import importlib
+        import pkgutil
+
+        for package_name in [
+            "derisk.agent.capabilities",
+            "derisk_serve.agent.capabilities",
+        ]:
+            try:
+                pkg = importlib.import_module(package_name)
+            except Exception:  # noqa: BLE001
+                continue
+            pkg_path = getattr(pkg, "__path__", None)
+            if not pkg_path:
+                continue
+            for _finder, name, ispkg in pkgutil.iter_modules(pkg_path):
+                if not ispkg:
+                    continue
+                full = f"{package_name}.{name}"
+                try:
+                    mod = importlib.import_module(full)
+                    reg = getattr(mod, "register_capability", None)
+                    if callable(reg):
+                        reg(facade)
+                        logger.debug(f"registered capability factories: {name}")
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"skip capability factory {name}: {e}")
 
     def resolve_tool_entry(self, tool_name: str) -> Any:
         """S19: 按 tool_name 从 _last_snapshot 统一查工具句柄(执行面与声明面同源)。

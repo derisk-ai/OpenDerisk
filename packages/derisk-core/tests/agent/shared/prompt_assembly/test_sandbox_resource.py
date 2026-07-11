@@ -79,11 +79,11 @@ def test_no_sandbox_client_works():
 
 
 # --------------------------------------------------------------------------- #
-# requires 默认空
+# requires 声明依赖共享 sandbox executor(RFC-006 Stage 2)
 # --------------------------------------------------------------------------- #
-def test_requires_empty():
+def test_requires_sandbox_executor():
     res = SandboxResource(_FakeSandboxClient())
-    assert res.requires() == []
+    assert res.requires() == ["sandbox"]
 
 
 # --------------------------------------------------------------------------- #
