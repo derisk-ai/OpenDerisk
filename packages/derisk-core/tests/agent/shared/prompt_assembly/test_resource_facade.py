@@ -5,14 +5,14 @@
 - SESSION 运行态叠加不污染静态快照
 - 配置变更 invalidate 失效缓存
 - end_session 清会话运行态 + release executor
-- 桥接兜底:无原生 declare 时走 LegacyResourceAdapter
+- 无原生 declare(无 wrapper)的子资源 → 空资源层(legacy 桥接已移除)
 """
 
 from typing import Any, List
 
 import pytest
 
-from derisk.core.interface.input import (
+from derisk.core.interface.resource.bundle import (
     CacheScope,
     Contribution,
     FrozenBundle,
@@ -20,12 +20,12 @@ from derisk.core.interface.input import (
     Lifetime,
     Slot,
 )
-from derisk.agent.shared.prompt_assembly.resource_facade import (
+from derisk.agent.capabilities.facade import (
     AgentInputsSnapshot,
     ResourceFacade,
     compute_config_hash,
 )
-from derisk.agent.shared.prompt_assembly.resource_protocol import ResourceProtocol
+from derisk.core.interface.resource.protocol import ResourceProtocol
 
 
 # --------------------------------------------------------------------------- #
@@ -145,10 +145,10 @@ async def test_invalidate_config_drops_snapshot():
 
 
 # --------------------------------------------------------------------------- #
-# 桥接兜底
+# 无原生 declare 的子资源 → 空资源层(legacy 桥接已移除)
 # --------------------------------------------------------------------------- #
-async def test_legacy_fallback_when_no_native_declare():
-    """无原生 declare 的资源 → 走 LegacyResourceAdapter 桥接,system 非空。"""
+async def test_no_native_declare_produces_empty_resource_layer():
+    """无 wrapper / declare 为空的资源 → 资源层为空(不再走 LegacyResourceAdapter)。"""
     facade = ResourceFacade()
     agent = _FakeAgent()
     cfg = [type("R", (), {"type": "fake", "value": "x", "name": None, "version": "v2"})()]
@@ -156,9 +156,9 @@ async def test_legacy_fallback_when_no_native_declare():
     snap = await facade.assemble(
         agent_id="a1", conv_id="c1", agent_resources=cfg, agent=agent,
     )
-    # 桥接产出 system(来自 inject_custom 兜底分支)
-    assert len(snap.frozen.system) >= 1
     assert isinstance(snap.frozen, FrozenBundle)
+    # _FakeCustomResource 无 wrapper → 整体资源层 system 为空
+    assert snap.frozen.system == []
 
 
 # --------------------------------------------------------------------------- #
@@ -249,10 +249,10 @@ async def test_turn_user_parts_merged():
 # S10 四层完整 system 快照(路线B)
 # --------------------------------------------------------------------------- #
 async def test_full_system_snapshot_layers_ordered():
-    """身份(GLOBAL)→控制(GLOBAL)→记忆(USER)→资源(USER),按 scope 优先级+order。
+    """身份(GLOBAL)→控制(GLOBAL)→记忆(USER),按 scope 优先级+order。
 
-    控制层因 GLOBAL scope 排在资源 USER 之前——换取 cache 红利,语义可接受。
-    记忆层插在 USER 资源之前。
+    _FakeAgent 的 _FakeCustomResource 无 wrapper,资源层为空(legacy 桥接已移除),
+    故本用例验证身份/控制/记忆三层排序。
     """
     facade = ResourceFacade()
     snap = await facade.assemble(
@@ -265,14 +265,11 @@ async def test_full_system_snapshot_layers_ordered():
     blocks = snap.full_system_blocks()
     texts = [b.text for b in blocks]
     scopes = [b.cache_scope for b in blocks]
-    # GLOBAL 两块在前(身份→控制),USER 在后(记忆→资源)
+    # GLOBAL 两块在前(身份→控制),USER 记忆在后
     assert texts[0] == "你是助手"
     assert texts[1] == "## 核心工作流"
     assert "## 偏好:简洁" in texts
-    # 记忆(USER)在资源(USER)之前
-    assert texts.index("## 偏好:简洁") < texts.index(
-        next(t for t in texts if "available_other_resources" in t)
-    )
+    assert texts.index("## 偏好:简洁") > texts.index("## 核心工作流")
     assert scopes[0] == CacheScope.GLOBAL
     assert scopes[1] == CacheScope.GLOBAL
 

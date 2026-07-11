@@ -9,18 +9,7 @@
 
 import pytest
 
-from derisk.core.interface.input import (
-    CacheControlPoint,
-    CacheScope,
-    Contribution,
-    FrozenBundle,
-    InputBundle,
-    Lifetime,
-    Slot,
-)
-
-
-# --------------------------------------------------------------------------- #
+from derisk.core.interface.resource.bundle import CacheControlPoint, CacheScope, Contribution, FrozenBundle, InputBundle, Lifetime, Slot
 # 构造辅助
 # --------------------------------------------------------------------------- #
 def _sys(text, scope=CacheScope.NONE, cap="cap", order=0, lifetime=Lifetime.CONFIG_STATIC):
@@ -265,14 +254,14 @@ def test_cache_control_zero_budget_returns_empty():
 # --------------------------------------------------------------------------- #
 # S12 provider 形态转换(AC-16 / AC-17)
 # --------------------------------------------------------------------------- #
-from derisk.core.interface.input import (  # noqa: E402
+from derisk.core.interface.resource.bundle import (
     to_anthropic_system,
     to_legacy_system_message,
 )
 
 
 def _bundle_scopes(*scopes):
-    from derisk.core.interface.input import InputBundle, CacheScope
+    from derisk.core.interface.resource.bundle import InputBundle, CacheScope
 
     b = InputBundle()
     for i, s in enumerate(scopes):
@@ -350,7 +339,7 @@ def test_to_anthropic_system_cache_type_ephemeral():
 
 def test_to_legacy_system_message_default_separator():
     """AC-17: 降级默认 separator 是现 PromptAssembler 的 \\n\\n---\\n\\n。"""
-    from derisk.core.interface.input import CacheScope
+    from derisk.core.interface.resource.bundle import CacheScope
 
     bundle = _bundle_scopes(CacheScope.USER, CacheScope.GLOBAL)
     frozen = bundle.freeze()

@@ -171,7 +171,8 @@ const StepRenderer: FC<{
     case 'skill':
       if (action === 'skill_read') return <SkillReadRenderer outputs={outputs} skillName={activeStep.title} />;
       if (action === 'skill_exec' || action === 'execute_skill_script_file') return <SkillScriptRenderer outputs={outputs} skillName={activeStep.title} />;
-      if (action === 'skill_list' || action === 'get_skill_resource' || action === 'load_skill') return <SkillCardRenderer outputs={outputs} skillName={activeStep.title} />;
+      if (action === 'skill_list') return <OutputRenderer outputs={outputs} />;
+      if (action === 'get_skill_resource' || action === 'load_skill') return <SkillCardRenderer outputs={outputs} skillName={activeStep.title} />;
       return <SkillReadRenderer outputs={outputs} skillName={activeStep.title} />;
     default:
       return <OutputRenderer outputs={outputs} />;

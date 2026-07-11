@@ -38,7 +38,7 @@ def ensure_tools_initialized():
 
         # 注册数据库工具（通过导入模块触发 @tool 装饰器自动注册）
         try:
-            import derisk_serve.agent.resource.db_tools  # noqa: F401
+            import derisk_serve.agent.capabilities.db.tools._db_tools_impl  # noqa: F401
 
             logger.info("[ToolMgmt] Database tools registered successfully")
         except Exception as e:

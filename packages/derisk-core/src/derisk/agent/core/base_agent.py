@@ -818,13 +818,25 @@ class ConversableAgent(Role, Agent):
         db_tool_names = ["get_table_spec", "execute_sql", "list_tables"]
 
         # 尝试导入 db_tools 模块以触发 @tool 装饰器自动注册
+        # (实现迁移自 derisk_serve.agent.resource.db_tools → capabilities/db/tools/_db_tools_impl)
         try:
-            import derisk_serve.agent.resource.db_tools  # noqa: F401
+            import derisk_serve.agent.capabilities.db.tools._db_tools_impl  # noqa: F401
         except ImportError:
             logger.debug(
-                "[_inject_database_tools] derisk_serve.agent.resource.db_tools "
+                "[_inject_database_tools] _db_tools_impl "
                 "not available, skipping import"
             )
+
+        # RFC-005:设 DB 工具 capability_id="db"(归 DB capability 自管)。
+        # 从 serve 层 capabilities/db/tools 的注册函数设归属(连 spec_service,
+        # 故在 serve 层)。失败不阻塞注入。
+        try:
+            from derisk_serve.agent.capabilities.db.tools import (
+                register_db_tools_capability,
+            )
+            register_db_tools_capability(tool_registry)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[_inject_database_tools] set capability_id failed: {e}")
 
         # 从 registry 中获取已注册的数据库工具并注入
         injected = 0

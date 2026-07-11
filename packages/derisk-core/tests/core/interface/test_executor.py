@@ -8,18 +8,7 @@
 
 import pytest
 
-from derisk.core.interface.executor import (
-    Executor,
-    ExecutorCall,
-    ExecutorRegistry,
-    ExecutorStatus,
-    InMemoryExecutorRegistry,
-    ReleaseReason,
-    topological_prepare,
-)
-
-
-# --------------------------------------------------------------------------- #
+from derisk.core.interface.resource.executor import Executor, ExecutorCall, ExecutorRegistry, ExecutorStatus, InMemoryExecutorRegistry, ReleaseReason, topological_prepare
 # 测试用 Executor:记录 prepare/release 时序
 # --------------------------------------------------------------------------- #
 class _RecordingExecutor(Executor):
