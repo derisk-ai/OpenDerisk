@@ -42,9 +42,14 @@ def build_capability(value, system_app=None):
 
 
 def register_capability(facade) -> None:
-    """RFC-006:注册 type_key→AppCapability factory。
+    """RFC-006:注册 type_key→AppCapability factory + 旧实例→Capability 过渡 provider。
 
     type_key="app"(ResourceType.App / GptAppResource.type() 的别名)。AgentResource.type
     为 "app" 时,react_master._register_capability_factories 命中本 factory 直接产 Capability。
+
+    Stage 4.5 过渡:同时注册 legacy provider,使 facade 遍历旧 ResourcePack 时把旧
+    GptAppResource 实例翻成 AppCapability(修复旧 wrapper declare 空桩 → app 描述注入生效)。
+    无需改 ResourceManager / react_master 构造链。Stage 9 旧类退役后删本 provider。
     """
     facade.register_capability_factory("app", build_capability)
+    facade.register_legacy_capability_provider(_is_app_legacy, AppCapability.from_legacy)
