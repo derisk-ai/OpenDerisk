@@ -377,9 +377,14 @@ class ResourceFacade:
                 )
             )
 
-        # L2 资源层:并行 declare 各原生/包装后的 ResourceProtocol(S16 并行加载)。
-        # 双轨迁移:遇旧 Resource 子类经 _to_resource_protocol 包装成 capability。
+        # L2 资源层(RFC-006 时序:适配 → requires → acquire(prepare) → declare → fetch)。
+        #   prepare 先于 declare:使 Knowledge/MCP/Skill 这类 declare 依赖 prepare I/O
+        #   产出(spaces/tools 元数据)的能力自管理——旧 __init__ 的 hydrate/preload I/O
+        #   挪到 prepare,declare 读 prepared 实例。requires 是静态(capability_id/config
+        #   派生)故前置收集。缓存语义不变:frozen 缓存 declare 产出(prepared 后 stable),
+        #   命中时复用 frozen 不重跑 prepare/declare。
         required_executor_ids: list = []
+        executors_ready = True
         if root is not None:
             subs: List[ResourceProtocol] = []
             for sub in _iter_sub_resources(root):
@@ -387,6 +392,20 @@ class ResourceFacade:
                 if wrapped is not None:
                     subs.append(wrapped)
             if subs:
+                # 1) 前置收集 requires(静态,不需 prepare)。
+                for s in subs:
+                    try:
+                        reqs = s.requires(getattr(s, "_config", None))
+                        if inspect.isawaitable(reqs):
+                            reqs = await reqs
+                        required_executor_ids.extend(list(reqs))
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"resource requires() failed: {e}")
+                # 2) acquire → prepare(实例就位)。
+                executors_ready = await self._prepare_executors(
+                    conv_id=conv_id, required_ids=required_executor_ids
+                )
+                # 3) declare(此时 Capability 实例已 prepared,declare 读 self._spaces 等)。
                 results = await asyncio.gather(
                     *[
                         self._declare_one(s, getattr(s, "_config", None))
@@ -394,19 +413,15 @@ class ResourceFacade:
                     ],
                     return_exceptions=False,
                 )
-                for (contribs, reqs) in results:
+                for (contribs, _reqs) in results:
                     if contribs is None:
                         continue
                     bundle.extend(contribs)
-                    required_executor_ids.extend(reqs)
         # 无子资源 / 全部 declare 为空 → 资源层即为空(无 LegacyResourceAdapter 桥接)。
         # WorkflowResource/ReasoningEngineResource 无 wrapper 但不出现在部署资源包中,
         # 普通无资源 agent 亦应得到空资源层而非旧桥接。
 
-        # executor 链路:据 requires 收集所需 executor,registry.acquire 触发 prepare。
-        executors_ready = await self._prepare_executors(
-            conv_id=conv_id, required_ids=required_executor_ids
-        )
+        # executor 链路已在上方 prepare(时序前置)。
 
         # 数据需求回填(Step A):扫描 declare 产出中 content 为 DataRequirement 的
         # Contribution,调对应 executor.fetch 预取,用结果重建 Contribution 替换占位。

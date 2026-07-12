@@ -1,16 +1,15 @@
-"""KnowledgeCapability —— 知识库自管理资源能力(RFC-006 Stage 7)。
+"""KnowledgeCapability —— 知识库自管理资源能力(RFC-006 Stage 7/8)。
 
 知识库是 Consumer:declare 库列表 SYSTEM + consume 检索结果回注(TURN)。
 
-**架构约束(facade 时序锁)**:facade._build_static_bundle 时序 declare 先于 prepare。
-Knowledge 的 declare 依赖 knowledge_spaces 元数据(由 get_knowledge_space I/O 得),无法用
-DataRequirement 占位(_spaces 是对象非 str)。故 KnowledgeCapability 不自管 prepare 的重
-I/O——from_legacy 复用旧 KnowledgePackSearchResource 实例(构造期已泄水合 spaces),declare
-读其 description 属性。prepare no-op。真正泄水合自管理需待 facade 时序改造,本轮不做。
+prepare 自管 hydrate:按 _knowledge_ids 调 KnowledgeService.get_knowledge_space 水合
+空间元数据(name/desc)存 _spaces,供 declare 渲染。facade 时序已改 prepare 先于 declare
+(RFC-006 Stage 8),declare 能读到 prepare 产出的 _spaces。若 from_legacy 已带完整 spaces
+(旧实例构造期已 hydrate)或 config 已带 name/desc,则 prepare 免 I/O。
 
 execute 不收编:knowledge_search 是 v1 KnowledgeSearch action(_init_actions 派发,经
 retriever.retrieve I/O),收编需改 v1/v2 shadowing + Action 派发,风险高。本轮
-KnowledgeCapability 自管 declare + consume,execute 保持 v1 action。
+KnowledgeCapability 自管 prepare/declare/consume,execute 保持 v1 action。
 """
 
 from __future__ import annotations
@@ -42,9 +41,15 @@ class KnowledgeCapability(Capability):
 
     capability_id = "knowledge"
 
-    def __init__(self, spaces: Optional[List[dict]] = None, description: str = ""):
+    def __init__(
+        self,
+        spaces: Optional[List[dict]] = None,
+        description: str = "",
+        knowledge_ids: Optional[List[Any]] = None,
+    ):
         self._spaces = spaces
         self._description = description
+        self._knowledge_ids = knowledge_ids or []
         self._status = ExecutorStatus.UNINITIALIZED
 
     @classmethod
@@ -59,7 +64,8 @@ class KnowledgeCapability(Capability):
             }
             for k in knowledges
         ]
-        return cls(spaces=spaces or None)
+        knowledge_ids = [k.get("knowledge_id") for k in knowledges if k.get("knowledge_id")]
+        return cls(spaces=spaces or None, knowledge_ids=knowledge_ids)
 
     @classmethod
     def from_legacy(cls, legacy_instance: Any) -> "KnowledgeCapability":
@@ -134,7 +140,51 @@ class KnowledgeCapability(Capability):
         ]
 
     async def prepare(self) -> None:
-        self._status = ExecutorStatus.READY
+        """hydrate 知识库空间元数据(name/desc),供 declare 渲染库列表。
+
+        若 _spaces 已带 name/desc(from_legacy 复用旧实例,或 config 已完整)则免 I/O。
+        否则按 _knowledge_ids 调 KnowledgeService.get_knowledge_space 水合(异步)。
+        facade 时序已改 prepare 先于 declare(RFC-006 Stage 8),故 declare 能读到本方法产出。
+        无 knowledge_ids 或 service 不可用时,保留现有 _spaces/_description(可能为空)。
+        """
+        if self._spaces and all(sp.get("name") for sp in self._spaces):
+            self._status = ExecutorStatus.READY
+            return
+        if not self._knowledge_ids:
+            self._status = ExecutorStatus.READY
+            return
+        try:
+            import asyncio
+
+            from derisk_app.knowledge.request.request import KnowledgeSpaceRequest
+            from derisk_app.knowledge.service import KnowledgeService
+
+            hydrated: List[dict] = []
+            for kid in self._knowledge_ids:
+                spaces = await asyncio.to_thread(
+                    lambda k=kid: KnowledgeService().get_knowledge_space(
+                        KnowledgeSpaceRequest(knowledge_id=k)
+                    )
+                )
+                if not spaces:
+                    continue
+                sp = spaces[0]
+                hydrated.append(
+                    {
+                        "name": getattr(sp, "name", "") or "",
+                        "knowledge_id": getattr(sp, "knowledge_id", kid),
+                        "desc": getattr(sp, "desc", "") or "",
+                    }
+                )
+            if hydrated:
+                # from_config 已带部分 spaces(config 元数据)与 hydrate 合并取并集
+                self._spaces = hydrated + [
+                    s for s in (self._spaces or []) if s.get("knowledge_id") not in {h["knowledge_id"] for h in hydrated}
+                ]
+            self._status = ExecutorStatus.READY
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[knowledge-capability] hydrate spaces failed: {e}")
+            self._status = ExecutorStatus.READY  # 降级:用现有 _spaces/_description
 
     async def execute(self, call: ExecutorCall) -> Any:
         raise NotImplementedError(

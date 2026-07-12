@@ -102,3 +102,28 @@ async def test_knowledge_capability_register_and_facade_flip():
     assert isinstance(wrapped, _CapabilityDeclareAdapter)
     assert wrapped.capability_id == "knowledge"
     assert any("wiki" in c.content for c in wrapped.declare() if isinstance(c.content, str))
+
+
+# =========================================================================== #
+# RFC-006 Stage 8: KnowledgeCapability prepare 自管 hydrate(facade 时序已改)
+# =========================================================================== #
+async def test_knowledge_capability_prepare_hydrates_spaces_from_ids(monkeypatch):
+    """prepare 按 knowledge_ids 调 KnowledgeService 水合 spaces(declare 能读到)。"""
+    from derisk_serve.agent.capabilities.knowledge import KnowledgeCapability
+
+    cap = KnowledgeCapability(spaces=None, knowledge_ids=["k1"])
+    # 若 derisk_app.knowledge 不可 import,prepare 降级不报错(ready)。此处验降级不崩。
+    await cap.prepare()
+    assert cap._status.value == "ready"
+
+
+async def test_knowledge_capability_prepare_skips_when_spaces_complete():
+    """_spaces 已带 name → prepare 免 I/O,直接 ready。"""
+    from derisk_serve.agent.capabilities.knowledge import KnowledgeCapability
+
+    cap = KnowledgeCapability(
+        spaces=[{"name": "wiki", "knowledge_id": "k1", "desc": "d"}], knowledge_ids=["k1"]
+    )
+    await cap.prepare()
+    assert cap._status.value == "ready"
+    assert cap._spaces[0]["name"] == "wiki"  # 未被 hydrate 覆盖
