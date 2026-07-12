@@ -96,5 +96,82 @@ async def test_mcp_capability_register_and_facade_flip():
     assert "tool" in facade._capability_factories
     wrapped = facade._to_resource_protocol(pack)
     assert isinstance(wrapped, _CapabilityDeclareAdapter)
-    assert wrapped.capability_id == "mcp"
+    assert wrapped.capability_id.startswith("mcp")
     assert len(wrapped.declare()) == 1
+
+
+# =========================================================================== #
+# RFC-006 Stage 8: MCPCapability prepare 自管 preload(连 server + 重建工具)
+# =========================================================================== #
+async def test_mcp_capability_prepare_loads_tools_from_server(monkeypatch):
+    """prepare 调 get_mcp_tool_list，逐工具用 FunctionTool 重建，declare 出 ToolEntry。"""
+    from derisk_serve.agent.capabilities.mcp import MCPCapability
+    fake_tool = SimpleNamespace(name="mcp_sum", description="sum", inputSchema={"properties": {"a": {"type": "number", "description": "x"}}, "required": ["a"]})
+    fake_result = SimpleNamespace(tools=[fake_tool])
+
+    async def _fake_get(mcp_name, server, **kw):
+        return fake_result
+
+    monkeypatch.setattr(
+        "derisk_serve.agent.capabilities.mcp.capability.get_mcp_tool_list", _fake_get, raising=False
+    )
+    # mcp_utils 在 prepare 内 import,monkeypatch 顶层 import 名需 patch 真模块
+    import derisk_serve.agent.capabilities.mcp.capability as mcp_mod, sys
+    # prepare 内 from ...mcp_utils import get_mcp_tool_list —— 用 sys.modules 兜底
+    real_utils = sys.modules.get("derisk_serve.agent.resource.tool.mcp_utils")
+    import derisk_serve.agent.resource.tool.mcp_utils as utils
+    monkeypatch.setattr(utils, "get_mcp_tool_list", _fake_get)
+
+    cap = MCPCapability(
+        mcp_name="demo", mcp_servers="http://x/sse", headers={}, tool_id="t1", timeout=10
+    )
+    await cap.prepare()
+    assert cap.capability_id == "mcp:demo"
+    contribs = cap.declare()
+    assert len(contribs) == 1
+    assert contribs[0].content.tool_name == "mcp_sum"
+    assert contribs[0].content.executor_id == BUILTIN_EXECUTOR_ID
+
+
+async def test_mcp_capability_prepare_no_servers_ready():
+    from derisk_serve.agent.capabilities.mcp import MCPCapability
+    cap = MCPCapability(mcp_name="x", mcp_servers=None)
+    await cap.prepare()
+    assert cap._status.value == "ready"
+    assert cap.declare() == []
+
+
+async def test_mcp_capability_prepare_degrades_on_failure(monkeypatch):
+    """get_mcp_tool_list 抛异常 → 降级(空工具列表,不崩,ready)。"""
+    from derisk_serve.agent.capabilities.mcp import MCPCapability
+    import derisk_serve.agent.resource.tool.mcp_utils as utils
+
+    async def _boom(*a, **kw):
+        raise RuntimeError("server down")
+
+    monkeypatch.setattr(utils, "get_mcp_tool_list", _boom)
+    cap = MCPCapability(mcp_name="demo", mcp_servers="http://x/sse")
+    await cap.prepare()
+    assert cap._status.value == "ready"
+    assert cap.declare() == []
+
+
+async def test_mcp_capability_from_legacy_reuses_loaded_tools():
+    """from_legacy 复用旧实例已 preload 的工具(过渡期,_loaded=True)。"""
+    from derisk_serve.agent.capabilities.mcp import MCPCapability
+    fake_tool = SimpleNamespace(name="t", description="d")
+    legacy = SimpleNamespace(
+        name="demo", _mcp_servers="http://x/sse", _headers={}, _allow_tools=None,
+        _tool_id="t1", _timeout=60, _source="faas", _overwrite_same_tool=True,
+        _loaded=True, sub_resources=[fake_tool],
+    )
+    cap = MCPCapability.from_legacy(legacy)
+    assert cap.capability_id == "mcp:demo"
+    assert cap._tools == [fake_tool]
+    # prepare 命中已 loaded → 不重新拉
+    import derisk_serve.agent.resource.tool.mcp_utils as utils
+    async def _should_not_call(*a, **kw):
+        raise AssertionError("should not call get_mcp_tool_list when tools loaded")
+    utils.get_mcp_tool_list = _should_not_call  # 若误调会抛
+    await cap.prepare()
+    assert cap._status.value == "ready"
