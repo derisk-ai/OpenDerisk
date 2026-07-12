@@ -1,15 +1,14 @@
-"""SkillCapability —— 技能自管理资源能力(RFC-006 Stage 7)。
+"""SkillCapability —— 技能自管理资源能力(RFC-006 Stage 7/8)。
 
-技能是纯声明类:declare 渲染 <agent-skills> 列表进 SYSTEM。无 I/O。
+技能纯声明:declare 渲染 <agent-skills> 列表进 SYSTEM。
 
-**架构约束(facade 时序锁)**:facade declare 先于 prepare。skill_code/path 解析在旧
-DeriskSkillResource.__init__(I/O)。declare 读 skill_meta(旧实例构造期已解析并存),
-故 SkillCapability 不自管 prepare 的 path I/O——from_legacy 复用旧实例已解析的
-skill_meta/_skill,无新增 I/O。prepare no-op。
+prepare 自管 skill_code/path 解析(facade 时序已改 prepare 先于 declare,RFC-006 Stage 8):
+若 skills 已带 path(from_legacy/config 完整)则免 I/O;否则按 skill_name 查 Skill service
+补 skill_code + 解析 sandbox path(get_skill_directory + FS 检查)。无 _SYSTEM_APP/
+service 不可用时降级不崩(declare 用现有 path/空)。
 
 execute 不收编:read_skill/list_skills 工具暂走 Route A builtin(沙箱/local fs 读,
-SandboxToolBase)。本轮 SkillCapability 自管 declare,execute 保持 Route A。
-注:config 若已带 skill_code/path(derisk_skill params 多数情况),from_config 可纯配置态。
+SandboxToolBase)。本轮 SkillCapability 自管 prepare/declare,execute 保持 Route A。
 
 双轨:register_wrappers 与 register_capability 并存,Stage 9 删前者。
 """
@@ -138,7 +137,87 @@ class SkillCapability(Capability):
 
     # ----------------------------- 生命周期(无 I/O) ----------------------- #
     async def prepare(self) -> None:
+        """补 skill_code/path(若 config 已带 path 则免 I/O;否则查 Skill service)。
+
+        facets 时序已改 prepare 先于 declare(RFC-006 Stage 8)。config 多数已带
+        skill_code/path(derisk_skill params 完整),仅边角(只给 skill_name)触发查码。
+        path 解析:查码后用 service.get_skill_directory 获取 sandbox path。
+        """
+        if not self._skills:
+            self._status = ExecutorStatus.READY
+            return
+        # 已带 path → 免 I/O
+        if all(sk.get("path") for sk in self._skills):
+            self._status = ExecutorStatus.READY
+            return
+        try:
+            import asyncio
+            import os
+
+            from derisk_serve.skill.service.service import (
+                Service,
+                SKILL_SERVICE_COMPONENT_NAME,
+            )
+            from derisk_serve.skill.api.schemas import SkillRequest
+            from derisk.agent.resource.manage import _SYSTEM_APP
+
+            if not _SYSTEM_APP:
+                self._status = ExecutorStatus.READY
+                return
+            service = _SYSTEM_APP.get_component(
+                SKILL_SERVICE_COMPONENT_NAME, Service, default=None
+            )
+            if not service:
+                self._status = ExecutorStatus.READY
+                return
+
+            for sk in self._skills:
+                if sk.get("path"):
+                    continue
+                skill_name = sk.get("name") or ""
+                # 查 skill_code(精确名 + 前缀回退)
+                skill_code = await asyncio.to_thread(
+                    self._lookup_skill_code, service, skill_name
+                )
+                if not skill_code:
+                    continue
+                sk_code = skill_code or skill_name
+                # 解析 sandbox path
+                skill_dir = await asyncio.to_thread(
+                    self._get_skill_directory, service, sk_code
+                )
+                if skill_dir:
+                    sk["path"] = skill_dir
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[skill-capability] prepare resolve code/path failed: {e}")
         self._status = ExecutorStatus.READY
+
+    @staticmethod
+    def _lookup_skill_code(service, skill_name: str):
+        """复刻 derisk_skill._lookup_skill_code_by_name(精确名 + 前缀回退)。"""
+        try:
+            skills = service.get_list(SkillRequest(name=skill_name))
+            if skills:
+                return skills[0].skill_code
+            for skill in service.get_list(SkillRequest()):
+                if skill.name == skill_name or skill.skill_code.startswith(f"{skill_name}-"):
+                    return skill.skill_code
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[skill-capability] lookup skill_code for '{skill_name}': {e}")
+        return None
+
+    @staticmethod
+    def _get_skill_directory(service, skill_code: str):
+        """复刻 derisk_skill._get_sandbox_path(service.get_skill_directory + FS 检查)。"""
+        try:
+            skill_dir = service.get_skill_directory(skill_code)
+            import os
+
+            if skill_dir and os.path.exists(skill_dir):
+                return skill_dir
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[skill-capability] get_skill_directory for '{skill_code}': {e}")
+        return None
 
     async def execute(self, call: ExecutorCall) -> Any:
         # read_skill/list_skills 暂走 Route A builtin(SandboxToolBase)。

@@ -129,3 +129,32 @@ async def test_skill_capability_register_and_facade_flip():
     assert isinstance(wrapped, _CapabilityDeclareAdapter)
     assert wrapped.capability_id == "skill"
     assert any("db-diagnosis" in c.content for c in wrapped.declare() if isinstance(c.content, str))
+
+
+# =========================================================================== #
+# RFC-006 Stage 8: SkillCapability prepare 自管 skill_code/path 解析
+# =========================================================================== #
+async def test_skill_capability_prepare_skips_when_path_present():
+    """skills 已带 path → prepare 免 I/O,直接 ready。"""
+    from derisk_serve.agent.capabilities.skill import SkillCapability
+    cap = SkillCapability(skills=[{"name": "xlsx", "description": "d", "path": "/p", "owner": "", "branch": "master"}])
+    await cap.prepare()
+    assert cap._status.value == "ready"
+    assert cap._skills[0]["path"] == "/p"  # 未被覆盖
+
+
+async def test_skill_capability_prepare_no_skills_ready():
+    from derisk_serve.agent.capabilities.skill import SkillCapability
+    cap = SkillCapability(skills=None)
+    await cap.prepare()
+    assert cap._status.value == "ready"
+
+
+async def test_skill_capability_prepare_degrades_without_system_app(monkeypatch):
+    """缺 path 且无 _SYSTEM_APP → prepare 降级不崩(ready,path 仍空)。"""
+    from derisk_serve.agent.capabilities.skill import SkillCapability
+    import derisk_serve.agent.capabilities.skill.capability as mod
+    monkeypatch.setattr(mod, "_SYSTEM_APP", None, raising=False) if hasattr(mod, "_SYSTEM_APP") else None
+    cap = SkillCapability(skills=[{"name": "xlsx", "description": "d", "path": "", "owner": "", "branch": "master"}])
+    await cap.prepare()
+    assert cap._status.value == "ready"
