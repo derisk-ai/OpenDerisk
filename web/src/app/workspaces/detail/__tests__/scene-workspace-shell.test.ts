@@ -1,4 +1,4 @@
-import { hasActiveTask } from './scene-workspace-shell';
+import { hasActiveTask } from '../scene-workspace-shell';
 
 describe('hasActiveTask', () => {
   it('returns true when any task is running/awaiting/draft/etc', () => {
