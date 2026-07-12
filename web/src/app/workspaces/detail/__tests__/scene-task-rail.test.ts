@@ -1,4 +1,4 @@
-import { statusToTab, statusLabel } from './scene-task-rail';
+import { statusToTab, statusLabel } from '../scene-task-rail';
 
 describe('statusToTab', () => {
   it('maps running variants to running tab', () => {

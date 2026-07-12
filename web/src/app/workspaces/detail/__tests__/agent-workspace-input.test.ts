@@ -1,4 +1,4 @@
-import { canSendSceneTask } from './agent-workspace-input';
+import { canSendSceneTask } from '../agent-workspace-input';
 
 const pb = { playbook_id: 1, playbook_name: '容量巡检' };
 

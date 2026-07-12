@@ -10,6 +10,9 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# hold refs to detached asyncio tasks so CPython doesn't GC them mid-flight (CPython/asyncio caveat)
+_pending_detached_tasks: set = set()
+
 
 def __getattr__(name):
     """惰性暴露 playbook_runtime 模块,避免 module-level import 触发循环导入
@@ -74,7 +77,8 @@ async def _summarize_task_title(
 
 
 async def _run_task_detached(system_app, task_id: int, user_code: Optional[str]) -> None:
-    """detached 跑 start + run_task,任何异常只记日志。"""
+    """detached 跑 start + run_task，任何异常只记日志并把任务转成 failed。"""
+    task_service = None
     try:
         from derisk_serve.task.service.service import (
             TASK_SERVICE_COMPONENT_NAME,
@@ -82,13 +86,23 @@ async def _run_task_detached(system_app, task_id: int, user_code: Optional[str])
         )
         from derisk_serve.playbook import runtime as playbook_runtime
 
-        task_service: TaskService = system_app.get_component(
-            TASK_SERVICE_COMPONENT_NAME, TaskService
-        )
+        task_service = system_app.get_component(TASK_SERVICE_COMPONENT_NAME, TaskService)
         task_service.start(task_id)
         await playbook_runtime.run_task(system_app, task_id, user_code=user_code)
     except Exception as e:  # noqa: BLE001
         logger.exception("detached run_task for task %s failed: %s", task_id, e)
+        # best-effort: 标记为 failed，避免任务永久停在 running。
+        # transition 对非法转换会 raise ValueError（task 可能已被 run_task 内部转成终态），
+        # 这里用嵌套 try 全吞，保证 _run_task_detached 永不再次抛出。
+        if task_service is not None:
+            try:
+                task_service.transition(task_id, "failed")
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "best-effort transition(failed) for task %s raised; leaving status as-is",
+                    task_id,
+                    exc_info=True,
+                )
 
 
 async def _summarize_title_detached(
@@ -183,14 +197,18 @@ def create_task_from_tool(
     entity = task_service.create(request)
 
     # detached 启动真实运行(不阻塞当前 SSE 流)
-    asyncio.create_task(_run_task_detached(system_app, entity.id, user_id))
+    run_t = asyncio.create_task(_run_task_detached(system_app, entity.id, user_id))
+    _pending_detached_tasks.add(run_t)
+    run_t.add_done_callback(_pending_detached_tasks.discard)
     # detached 启动标题总结(独立于 run_task,互不影响)
     if title:
-        asyncio.create_task(
+        title_t = asyncio.create_task(
             _summarize_title_detached(
                 system_app, entity.id, title, playbook.name if playbook else None, model_name
             )
         )
+        _pending_detached_tasks.add(title_t)
+        title_t.add_done_callback(_pending_detached_tasks.discard)
 
     return {
         "task_id": entity.id,
