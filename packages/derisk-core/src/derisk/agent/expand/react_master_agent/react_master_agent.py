@@ -326,11 +326,15 @@ class ReActMasterAgent(ConversableAgent):
                 return
 
             # 检查 resource_map 是否有 AppResource
+            # RFC-006 Phase B5:优先 capability_pack(新协议),fallback 旧 resource_map。
             has_app_resource = False
-            for k, v in (self.resource_map or {}).items():
-                if v and isinstance(v[0], AppResource):
-                    has_app_resource = True
-                    break
+            if getattr(self, "_has_capability", None) and self._has_capability("app"):
+                has_app_resource = True
+            else:
+                for k, v in (self.resource_map or {}).items():
+                    if v and isinstance(v[0], AppResource):
+                        has_app_resource = True
+                        break
 
             if not has_app_resource:
                 return
