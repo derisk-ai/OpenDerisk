@@ -175,3 +175,40 @@ async def test_mcp_capability_from_legacy_reuses_loaded_tools():
     utils.get_mcp_tool_list = _should_not_call  # 若误调会抛
     await cap.prepare()
     assert cap._status.value == "ready"
+
+
+# =========================================================================== #
+# RFC-006 Phase C: facade.assemble 读 agent.capability_pack(MCP 走纯新协议)
+# =========================================================================== #
+async def test_facade_assemble_reads_capability_pack_for_mcp(monkeypatch):
+    """agent.capability_pack 含 MCPCapability(已 preload 工具)→ facade.assemble
+    从 capability_pack 读,declare 出 MCP 工具 ToolEntry(走纯新协议,不翻旧 ToolPack)。"""
+    from derisk.agent.capabilities import ResourceFacade
+    from derisk.agent.capabilities.facade import _CapabilityDeclareAdapter
+    from derisk_serve.agent.capabilities.mcp import MCPCapability
+    from derisk.agent.resource import FunctionTool
+    from derisk.core.interface.resource.capability import CapabilityPack
+
+    # 造一个已 prepare 的 MCPCapability(自带工具,免 server)
+    def _fn(**k):
+        return "ok"
+    _fn.__doc__ = "d"
+    cap = MCPCapability(mcp_name="demo", mcp_servers="http://x/sse")
+    cap._tools = [FunctionTool(name="mcp_loaded", func=_fn, description="d")]
+    from derisk.core.interface.resource.executor import ExecutorStatus
+    cap._status = ExecutorStatus.READY
+
+    pack = CapabilityPack([cap])
+
+    class _FakeAgent:
+        capability_pack = pack
+        resource = None
+
+    facade = ResourceFacade()
+    snap = await facade.assemble(
+        agent_id="a1", conv_id="c1", agent=_FakeAgent(),
+        identity="id", control_block="ctl",
+    )
+    # MCP 工具进 snapshot tools
+    tool_names = {getattr(c.content, "tool_name", None) for c in snap.tools}
+    assert "mcp_loaded" in tool_names
