@@ -176,3 +176,37 @@ async def test_facade_flips_legacy_db_to_capability():
     contribs = wrapped.declare()
     assert any("paydb" in c.content for c in contribs if isinstance(c.content, str))
     assert "db:42" in facade.executor_provider
+
+# =========================================================================== #
+# RFC-006 Phase B3: _resolve_db_from_agent 优先从 CapabilityPack 取连接
+# =========================================================================== #
+async def test_resolve_db_from_agent_prefers_capability_pack():
+    """agent 有 capability_pack 含 DBCapability(db_name 匹配)→ 从其取 connector。"""
+    from types import SimpleNamespace
+    from derisk_serve.agent.capabilities.db.capability import DBCapability
+
+    cap = DBCapability(db_name="paydb", db_id=42)
+    cap._status = __import__("derisk.core.interface.resource.executor", fromlist=["ExecutorStatus"]).ExecutorStatus.READY
+    fake_conn = MagicMock()
+    cap._connector = fake_conn
+    pack = SimpleNamespace(sub_resources=[cap])
+    agent = SimpleNamespace(capability_pack=pack, resource_map={})
+
+    from derisk_serve.agent.capabilities.db.tools._db_tools_impl import _resolve_db_from_agent
+    conn, ds_id = _resolve_db_from_agent("paydb", {"agent": agent})
+    assert conn is fake_conn
+    assert ds_id == 42
+
+
+async def test_resolve_db_from_agent_falls_back_to_resource_map():
+    """capability_pack 无 db_name 匹配 → 回退旧 resource_map find DBResource。"""
+    from types import SimpleNamespace
+    from derisk.agent.resource.database import DBResource  # noqa: F401  (isinstance 用)
+
+    # capability_pack 空或无 db 匹配
+    pack = SimpleNamespace(sub_resources=[])
+    agent = SimpleNamespace(capability_pack=pack, resource_map={})
+    from derisk_serve.agent.capabilities.db.tools._db_tools_impl import _resolve_db_from_agent
+    conn, ds_id = _resolve_db_from_agent("paydb", {"agent": agent})
+    assert conn is None
+    assert ds_id is None

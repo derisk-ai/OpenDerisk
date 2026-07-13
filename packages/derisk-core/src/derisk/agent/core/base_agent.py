@@ -540,7 +540,42 @@ class ConversableAgent(Role, Agent):
         """Prepare the parameters for the act method."""
         return {}
 
+    def _has_capability(self, capability_id_prefix: str) -> bool:
+        """RFC-006 Phase B1:agent 是否持有某 capability_id 前缀的 Capability。
+
+        从 self.capability_pack.sub_resources 扫,前缀匹配(如 "app"/"db"/"knowledge")。
+        供旧的 _check_have_resource(type) 重键:旧类型→capability prefix 映射。
+        """
+        pack = getattr(self, "capability_pack", None)
+        if pack is None:
+            return False
+        for c in getattr(pack, "sub_resources", []) or []:
+            cid = getattr(c, "capability_id", "")
+            if cid and cid.startswith(capability_id_prefix):
+                return True
+        return False
+
+    # 旧 3 Resource 类型 → capability_id prefix 映射(Phase B1 重键过渡)。
+    _RESOURCE_TYPE_TO_CAPABILITY_PREFIX = {
+        # AppResource / GptAppResource → "app"
+    }
+
     def _check_have_resource(self, resource_type: Type[Resource]) -> bool:
+        # RFC-006 Phase B1:优先查 capability_pack(新协议),fallback 旧 resource_map。
+        _prefix_map = {
+            "AppResource": "app",
+            "GptAppResource": "app",
+            "RetrieverResource": "knowledge",
+            "KnowledgePackSearchResource": "knowledge",
+            "DBResource": "db",
+            "DatasourceResource": "db",
+            "RDBMSConnectorResource": "db",
+        }
+        type_name = getattr(resource_type, "__name__", "")
+        prefix = _prefix_map.get(type_name)
+        if prefix and self._has_capability(prefix):
+            return True
+        # fallback:旧 resource_map isinstance(过渡期保留,Phase D 删)
         for resources in self.resource_map.values():
             if not resources:  # 防御性检查，避免空列表
                 continue
