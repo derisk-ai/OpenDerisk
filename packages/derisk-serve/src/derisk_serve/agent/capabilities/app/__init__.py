@@ -53,3 +53,12 @@ def register_capability(facade) -> None:
     """
     facade.register_capability_factory("app", build_capability)
     facade.register_legacy_capability_provider(_is_app_legacy, AppCapability.from_legacy)
+
+
+# RFC-006 Phase A:供 CapabilityFactoryRegistry 构造期 build_pack 用。
+CAPABILITY_TYPE_KEY = "app"
+
+
+def register_capability_to(registry) -> None:
+    """注册 build_capability 到 CapabilityFactoryRegistry(构造期产 CapabilityPack)。"""
+    registry.register(CAPABILITY_TYPE_KEY, build_capability)

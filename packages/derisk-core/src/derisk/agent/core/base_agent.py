@@ -128,6 +128,9 @@ class ConversableAgent(Role, Agent):
     agent_context: Optional[AgentContext] = Field(None, description="Agent context")
     actions: List[Type[Action]] = Field(default_factory=list)
     resource: Optional[Resource] = Field(None, description="Resource")
+    # RFC-006 Phase A:自管理 Capability 容器(由 agent_chat 构造期产,bind 设置)。
+    # Transitional:与 resource(旧 ResourcePack)并存;Phase D 旧类退役后 resource 消亡。
+    capability_pack: Optional[Any] = Field(None, description="CapabilityPack")
     resource_map: Dict[str, List[Resource]] = Field(
         default_factory=lambda: defaultdict(list),
         description="Resource name to resource list mapping",
@@ -297,6 +300,13 @@ class ConversableAgent(Role, Agent):
         if self.resource:
             root_tracer.set_current_agent_id(self.agent_context.agent_app_code)
             await self.resource.preload_resource()
+        # RFC-006 Phase A:eager load CapabilityPack(prepare 各 Capability,如 MCP 连 server)。
+        # 与旧 self.resource.preload_resource 并行(过渡期双绑);Phase C/D 后 resource 消亡。
+        if self.capability_pack is not None:
+            try:
+                await self.capability_pack.preload_resource()
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[base_agent.preload_resource] capability_pack prepare failed: {e}")
         # tidy resource
         self.resource_map = await self._tidy_resource(self.resource)
         logger.info(
@@ -357,6 +367,11 @@ class ConversableAgent(Role, Agent):
             raise ValueError("GptsMemory is not supported!Please Use Agent Memory")
         elif isinstance(target, AgentContext):
             self.agent_context = target
+        elif isinstance(target, CapabilityPack):
+            # RFC-006 Phase A:自管理 Capability 容器(非 Resource)。facade 读它渲染,
+            # base_agent.preload_resource 触发其 prepare(eager load)。与 self.resource
+            # (旧 ResourcePack)并存过渡,Phase D 旧类退役后 self.resource 消亡。
+            self.capability_pack = target
         elif isinstance(target, Resource):
             self.resource = target
         elif isinstance(target, AgentMemory):

@@ -1711,12 +1711,30 @@ class AgentChat(BaseComponent, ABC):
                     agent_context = deepcopy(context)
                     agent_context.agent_app_code = app.app_code
 
+                    cap_pack = None
+                    try:
+                        from derisk.agent.capabilities.registry_factory import (
+                            get_default_factory_registry,
+                        )
+                        cap_pack = get_default_factory_registry().build_pack(
+                            real_all_resources, self.system_app
+                        )
+                        if cap_pack and cap_pack.sub_resources:
+                            logger.info(
+                                f"[AgentChat] CapabilityPack built: "
+                                f"{len(cap_pack.sub_resources)} caps "
+                                f"({[getattr(c,'capability_id','?') for c in cap_pack.sub_resources]})"
+                            )
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"[AgentChat] build CapabilityPack failed: {e}")
+
                     recipient = (
                         await cls()
                         .bind(agent_context)
                         .bind(agent_memory)
                         .bind(llm_config)
                         .bind(sandbox_manager)
+                        .bind(cap_pack)
                         .bind(depend_resource)
                         # .bind(prompt_template)
                         .bind(app.context_config)
