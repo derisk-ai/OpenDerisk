@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   main:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Draft DERISK release
         uses: release-drafter/release-drafter@v5

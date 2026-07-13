@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   main:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Label pull request
         uses: release-drafter/release-drafter@v5
