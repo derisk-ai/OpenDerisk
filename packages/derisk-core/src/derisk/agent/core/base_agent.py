@@ -61,6 +61,7 @@ from .variable import VariableManager
 from .. import BlankAction
 
 from ..resource.base import Resource
+from derisk.core.interface.resource.capability import CapabilityPack
 from ..util.ext_config import ExtConfigHolder
 from ..util.llm.llm import LLMConfig, get_llm_strategy_cls
 from ..util.llm.llm_client import AIWrapper, AgentLLMOut
