@@ -56,3 +56,10 @@ def register_capability(facade) -> None:
     facade.register_legacy_capability_provider(
         _is_knowledge_legacy, KnowledgeCapability.from_legacy
     )
+
+# RFC-006 Phase A:供 CapabilityFactoryRegistry 构造期 build_pack 用。
+CAPABILITY_TYPE_KEY = "knowledge_pack"
+
+
+def register_capability_to(registry) -> None:
+    registry.register(CAPABILITY_TYPE_KEY, build_capability)

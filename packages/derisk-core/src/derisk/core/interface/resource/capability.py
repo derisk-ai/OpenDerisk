@@ -34,7 +34,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, List
+from typing import Any, List, Optional
 
 from derisk.core.interface.resource.bundle import Contribution
 from derisk.core.interface.resource.data_requirement import DataRequirement
@@ -148,6 +148,42 @@ class CapabilityPack:
 
     def add(self, capability: "Capability") -> None:
         self._capabilities.append(capability)
+
+    async def preload_resource(self) -> None:
+        """eager load:遍历 sub Capability 调 prepare(agent init 期,对齐旧
+        ResourcePack.preload_resource 时机)。MCP 等连外部 server 的能力在此建连接,
+        而非延后到 facade.assemble。prepare 需幂等(已 READY 则跳过)。
+        """
+        import asyncio
+
+        async def _prep(cap):
+            try:
+                await cap.prepare()
+            except Exception as e:  # noqa: BLE001
+                # 单能力 prepare 失败不阻塞其它(对齐旧 ResourcePack 容错)
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"[CapabilityPack] prepare {getattr(cap, 'capability_id', '?')} failed: {e}"
+                )
+
+        await asyncio.gather(*[_prep(c) for c in self._capabilities], return_exceptions=False)
+
+    def get(self, capability_id_prefix: str) -> Optional["Capability"]:
+        """按 capability_id 前缀查首个 Capability(供 _check_have_resource 等消费者取实例)。"""
+        for c in self._capabilities:
+            cid = getattr(c, "capability_id", "")
+            if cid and cid.startswith(capability_id_prefix):
+                return c
+        return None
+
+    def get_all(self, capability_id_prefix: str) -> List["Capability"]:
+        """按 capability_id 前缀查全部 Capability(多实例,如多 DB/Knowledge)。"""
+        return [
+            c
+            for c in self._capabilities
+            if getattr(c, "capability_id", "").startswith(capability_id_prefix)
+        ]
 
 
 __all__ = [

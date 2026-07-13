@@ -49,3 +49,10 @@ def register_capability(facade) -> None:
     except Exception as e:  # noqa: BLE001
         import logging
         logging.getLogger(__name__).warning(f"memory register_capability legacy provider failed: {e}")
+
+# RFC-006 Phase A:供 CapabilityFactoryRegistry 构造期 build_pack 用。
+CAPABILITY_TYPE_KEY = "memory"
+
+
+def register_capability_to(registry) -> None:
+    registry.register(CAPABILITY_TYPE_KEY, build_capability)
