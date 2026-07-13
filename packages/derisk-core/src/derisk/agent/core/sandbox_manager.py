@@ -183,9 +183,36 @@ class SandboxManager:
         await self._exec(command, work_dir=self.work_dir, timeout=10.0)
 
     async def _update_repo(self, repo_path: str) -> None:
-        """更新已有的 git 仓库"""
-        pull_cmd = "git fetch --depth=1 --no-tags --prune --quiet origin master && git reset --hard origin/master --quiet"
+        """更新已有的 git 仓库(容错:无远端/无 master 分支时跳过,保留本地状态)。
+
+        旧实现硬编码 `git fetch origin master`,对本地非 git 目录或分支名不是 master
+        的仓库(ex:纯本地 skill 目录、已改 main 分支)会 fatal。改为:
+        - 不是 git 仓库 → 跳过(无 .git)
+        - 无 origin 远端 → 跳过 fetch(纯本地仓库)
+        - origin 存在 → 用其默认分支(HEAD)fetch+reset,不强求 master
+        """
         logger.info("更新知识库仓库: %s", repo_path)
+        # 非空目录但非 git 仓库 → 跳过
+        is_git = await self._exec(
+            "git -C {p} rev-parse --is-inside-work-tree".format(p=shlex.quote(repo_path)),
+            work_dir=repo_path, timeout=10.0,
+        )
+        if not is_git or collect_shell_output(is_git).strip() != "true":
+            logger.info("仓库 %s 非 git 仓库,跳过 update", repo_path)
+            return
+        # 是否有 origin 远端
+        has_origin = await self._exec(
+            "git -C {p} remote get-url origin".format(p=shlex.quote(repo_path)),
+            work_dir=repo_path, timeout=10.0,
+        )
+        if not has_origin or not collect_shell_output(has_origin).strip():
+            logger.info("仓库 %s 无 origin 远端,跳过 update(纯本地)", repo_path)
+            return
+        # 用 origin/HEAD(远端默认分支)fetch+reset,不强求 master
+        pull_cmd = (
+            "git fetch --depth=1 --no-tags --prune --quiet origin "
+            "&& git reset --hard origin/HEAD --quiet"
+        )
         result = await self._exec(pull_cmd, work_dir=repo_path, timeout=60.0)
         output = collect_shell_output(result)
         logger.info("git pull 完成: %s", output)
