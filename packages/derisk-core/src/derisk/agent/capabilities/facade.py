@@ -351,7 +351,16 @@ class ResourceFacade:
         返回 (bundle, required_executor_ids, executors_ready)。
         """
         bundle = InputBundle()
-        root = resource_root or (getattr(agent, "resource", None) if agent else None)
+        # RFC-006 Phase C:root 优先 agent.capability_pack(自管理 Capability 对象);
+        # fallback 旧 agent.resource(双轨过渡,Phase D 旧类退役后 resource 消亡)。
+        # resource_root 显式传入时最优先(测试/特殊场景)。
+        if resource_root is not None:
+            root = resource_root
+        elif agent is not None:
+            cap_pack = getattr(agent, "capability_pack", None)
+            root = cap_pack if cap_pack is not None else getattr(agent, "resource", None)
+        else:
+            root = None
 
         # L1 身份层 + L3 控制层(GLOBAL,跨用户通用)
         if identity:
