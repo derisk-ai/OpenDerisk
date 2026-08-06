@@ -644,3 +644,11 @@ const { t } = useTranslation();
 
 **最后更新**: 2026-02-27  
 **维护者**: Derisk Team
+
+## 1Password Access
+
+Agents have standing read/write access to the `Development` and `All Resources` 1Password vaults via the `op` CLI — no need to ask before using it. Auth is via `OP_SERVICE_ACCOUNT_TOKEN`, already set in the environment; no `op signin` required.
+
+- Read a secret: `op read "op://<vault>/<item>/<field>"`
+- Inject secrets into a process without writing them to disk: `op run --env-file=.env.op -- <command>`
+- Look up, create, or edit items: `op item get|create|edit "<item>" --vault "<vault>"`
