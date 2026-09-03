@@ -1,0 +1,53 @@
+identity:
+  name: "Clean Professional"
+  category: corporate
+  mood: bright, trustworthy, clear
+  pace: medium
+  best_for: "教程讲解、工作汇报、知识科普、企业新闻"
+  source: "migrated from OpenMontage styles/clean-professional.yaml"
+
+visual_language:
+  color_palette:
+    primary: ["#2563EB", "#1D4ED8"]
+    accent: ["#0EA5E9", "#10B981"]
+    background: "#F8FAFC"
+    text: "#0F172A"
+    muted: "#64748B"
+  template_injection:
+    TEXT_COLOR: "#3A3350"
+    BG1: "#F8FAFC"
+    BG2: "#E0E7FF"
+    ACCENT: "#2563EB"
+    ACCENT2: "#0EA5E9"
+    BAR_COLORS: ["#2563EB", "#0EA5E9", "#10B981", "#F59E0B", "#8B5CF6", "#EF4444"]
+  typography:
+    headings: { font: "Inter", weight: 700 }
+    body: { font: "Inter", weight: 400, line_height: 1.6 }
+  motion:
+    transitions: [slide, fade, cut]
+    animation_style: "ease-in-out, smooth, purposeful"
+    pacing_rules:
+      min_scene_hold_seconds: 2.0
+      max_scene_hold_seconds: 9
+      text_card_hold_seconds: 3.0
+      transition_duration_seconds: 0.4
+    entrance: "slide-up + fade (0.6s)"
+    exit: "fade"
+  audio:
+    voice_style: "clear, professional, moderate pace"
+    music_mood: "light corporate, uplifting, soft"
+    music_volume: 0.10
+
+asset_generation:
+  image_prompt_prefix: "clean professional, bright, well-lit, modern workspace, "
+  image_negative_prompt: "dark, cluttered, neon, grunge, horror"
+  consistency_anchors:
+    - "蓝色 #2563EB 主色调"
+    - "浅色背景 #F8FAFC 保持明亮通透"
+    - "信息层次清晰"
+    - "规整的栅格构图"
+
+quality_rules:
+  - "文本对比度不低于 4.5:1"
+  - "每镜一个核心信息点"
+  - "图表数据必须有来源标注"

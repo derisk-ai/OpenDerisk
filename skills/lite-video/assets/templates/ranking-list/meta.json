@@ -1,0 +1,8 @@
+{
+  "name": "ranking-list",
+  "title": "榜单入场",
+  "description": "榜单条目逐条入场 + 名次徽章 + 进度条，适合 Top N 盘点、热门排行、项目榜单",
+  "tags": ["ranking", "list", "top"],
+  "orientation": ["portrait", "landscape"],
+  "source": "inspired by HyperFrames lower-third & notification-cascade blocks (heygen-com/hyperframes)"
+}

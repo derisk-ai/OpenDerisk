@@ -1,0 +1,9 @@
+{
+  "name": "data-narrative",
+  "title": "数据叙事（方案B）",
+  "description": "D3 图表 + GSAP 时间分步叙事（Scrollama 思想适配）：图表静态构建，时间轴逐步高亮数据并推进叙述，适合数据演进、推理论证、强叙事场景",
+  "tags": ["d3", "gsap", "data-story", "plan-b"],
+  "orientation": ["portrait", "landscape"],
+  "libs": ["d3", "gsap"],
+  "source": "成熟方案B（Scrollama + D3 + GSAP），滚动分步改造为时间分步以适配确定性渲染"
+}

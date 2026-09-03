@@ -1,0 +1,55 @@
+identity:
+  name: "Neon Cyber"
+  category: cyberpunk
+  mood: futuristic, electric, bold
+  pace: fast
+  best_for: "科技发布、赛博朋克、游戏、未来感叙事、酷炫数据"
+  source: "original, inspired by cyberpunk visual language"
+
+visual_language:
+  color_palette:
+    primary: ["#00F0FF", "#FF2E97"]
+    accent: ["#7C3AED", "#00FF9F"]
+    background: "#05060F"
+    text: "#E8F6FF"
+    muted: "#3E5570"
+  template_injection:
+    TEXT_COLOR: "#FFFFFF"
+    BG1: "#05060F"
+    BG2: "#120826"
+    ACCENT: "#00F0FF"
+    ACCENT2: "#FF2E97"
+    BAR_COLORS: ["#00F0FF", "#FF2E97", "#7C3AED", "#00FF9F", "#FFD600", "#FF6B35"]
+  typography:
+    headings: { font: "Monospace Tech", weight: 700, letter_spacing: "0.15em" }
+    body: { font: "Inter", weight: 400, line_height: 1.5 }
+  motion:
+    transitions: [glitch-cut, scan-wipe, neon-flash]
+    animation_style: "sharp ease-in-out, glitch jitter, glow pulse"
+    pacing_rules:
+      min_scene_hold_seconds: 1.5
+      max_scene_hold_seconds: 7
+      transition_duration_seconds: 0.25
+    entrance: "glitch-in (RGB split converge) or scan-reveal"
+    exit: "flicker-out"
+  audio:
+    voice_style: "crisp, energetic, tech-announcer"
+    music_mood: "synthwave, driving bass, arpeggios"
+    music_volume: 0.14
+
+asset_generation:
+  image_prompt_prefix: "cyberpunk neon, dark background, glowing edges, holographic, "
+  image_negative_prompt: "pastel, cute, daylight, flat colors, cartoon"
+  consistency_anchors:
+    - "青色 #00F0FF + 品红 #FF2E97 双霓虹主色"
+    - "近黑背景 #05060F"
+    - "极淡静态网格与辉光元素贯穿（全程扫描线会疲劳，已废弃）"
+    - "等宽字体数字与标签"
+
+quality_rules:
+  - "所有发光元素带辉光脉冲（亮度随时间正弦波动）"
+  - "扫描线默认关闭；若用，仅个别镜做极淡一次性点缀，禁止每镜全程扫"
+  - "数字用等宽字体，滚动计数"
+  - "同屏高饱和色不超过 3 种"
+  - "连线端点由节点矩形派生，禁止手填坐标（防错位）"
+  - "节点矩形不得重叠，文字不得溢出盒子"

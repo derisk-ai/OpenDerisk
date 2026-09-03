@@ -1,0 +1,52 @@
+identity:
+  name: "Cute Pastel"
+  category: cute
+  mood: warm, playful, friendly
+  pace: medium
+  best_for: "生活分享、情感向内容、可爱科普、儿童向、轻松日常"
+  source: "original, inspired by pastel design language"
+
+visual_language:
+  color_palette:
+    primary: ["#FF8FAB", "#FB6F92"]
+    accent: ["#FFD166", "#957FEF"]
+    background: "#FFF3F6"
+    text: "#3A3350"
+    muted: "#B8A9C9"
+  template_injection:
+    TEXT_COLOR: "#3A3350"
+    BG1: "#FFE5EC"
+    BG2: "#E7E0FF"
+    ACCENT: "#FB6F92"
+    ACCENT2: "#957FEF"
+    BAR_COLORS: ["#FF8FAB", "#FFD166", "#957FEF", "#8EC5FC", "#98F5C1", "#FFC09F"]
+  typography:
+    headings: { font: "Rounded Gothic", weight: 700 }
+    body: { font: "Rounded Gothic", weight: 400, line_height: 1.6 }
+  motion:
+    transitions: [bounce-pop, jelly-wobble]
+    animation_style: "overshoot bounce (c1=1.7), jelly scale, 圆角抖动"
+    pacing_rules:
+      min_scene_hold_seconds: 2.0
+      max_scene_hold_seconds: 8
+      transition_duration_seconds: 0.5
+    entrance: "jelly pop (0.6 -> 1.08 -> 1.0) with slight rotation"
+    exit: "squish-down fade"
+  audio:
+    voice_style: "warm, soft, slightly upbeat"
+    music_mood: "ukulele, music-box, light piano"
+    music_volume: 0.12
+
+asset_generation:
+  image_prompt_prefix: "cute pastel illustration, rounded shapes, soft lighting, kawaii style, "
+  image_negative_prompt: "dark, horror, realistic photo, sharp edges, gritty"
+  consistency_anchors:
+    - "粉色 #FB6F92 与紫色 #957FEF 双主色"
+    - "大圆角、柔和阴影"
+    - "表情符号点缀（每镜 1~2 个）"
+    - "留白充足，画面不拥挤"
+
+quality_rules:
+  - "装饰元素（星星/腮红/漂浮圆点）做时间函数呼吸动画"
+  - "入场一律带轻微过冲弹跳（overshoot 8%）"
+  - "避免直角硬边，圆角 ≥16px"

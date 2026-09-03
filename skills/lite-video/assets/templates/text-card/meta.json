@@ -1,0 +1,8 @@
+{
+  "name": "text-card",
+  "title": "图文卡片",
+  "description": "卡片入场 + 关键词高亮逐字点亮 + 装饰光斑漂浮，适合观点陈述、金句、章节过渡、结论强调",
+  "tags": ["text", "card", "quote"],
+  "orientation": ["portrait", "landscape"],
+  "source": "inspired by HyperFrames hw-title / notes-reveal / cosmic-orb blocks (heygen-com/hyperframes)"
+}

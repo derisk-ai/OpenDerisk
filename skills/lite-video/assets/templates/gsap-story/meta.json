@@ -1,0 +1,9 @@
+{
+  "name": "gsap-story",
+  "title": "GSAP 分步叙事（方案A）",
+  "description": "GSAP 时间轴驱动的分步信息点交错入场，标准缓动与节奏，适合中小型科普、观点递进、要点罗列",
+  "tags": ["gsap", "story", "plan-a"],
+  "orientation": ["portrait", "landscape"],
+  "libs": ["gsap"],
+  "source": "成熟方案A（HTML/CSS + GSAP），借鉴 GSAP Showcase 的 stagger/时间轴编排"
+}

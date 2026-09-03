@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-libs" content="mermaid,gsap">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin:0; padding:0; width:{{WIDTH}}px; height:{{HEIGHT}}px; overflow:hidden; }
+  body {
+    background: linear-gradient(160deg, {{BG1}} 0%, {{BG2}} 100%);
+    font-family: "WenQuanYi Micro Hei", "Noto Sans CJK SC", "PingFang SC", sans-serif;
+    color: {{TEXT_COLOR}};
+    display: flex; flex-direction: column;
+    padding: {{PAD}}px {{PAGE_PAD}}px; gap: {{GAP}}px;
+  }
+  #title { font-size: {{TITLE_SIZE}}px; font-weight: bold; opacity: 0; margin: 0; }
+  #diagram { flex: 1; background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 20px;
+    display: flex; align-items: center; justify-content: center;
+    padding: {{CPAD}}px; opacity: 0; overflow: hidden; }
+  #diagram svg { width: 100% !important; height: 100% !important;
+    background: transparent !important; }
+  /* Mermaid 暗色适配：SVG 自带白底，强制透明并调节点/连线配色 */
+  #diagram svg rect[fill="#ECECFF"], #diagram svg > rect { fill: transparent !important; }
+  #diagram .nodeLabel { color: #fff !important; }
+  /* htmlLabels 模式下边标签是 foreignObject 内的 span，直接给它加深色衬底 */
+  #diagram span.edgeLabel, #diagram .edgeLabel span {
+    color: #fff !important; background: #1d2a4a !important;
+    padding: 2px 8px; border-radius: 6px; }
+  #diagram .node rect, #diagram .node polygon, #diagram .node circle {
+    fill: #1d2a4a !important; stroke: {{ACCENT}} !important; stroke-width: 2px !important; }
+  #diagram .edgePath path { stroke: {{ACCENT2}} !important; stroke-width: 2.5px !important; }
+  #diagram .arrowheadPath { fill: {{ACCENT2}} !important; stroke: {{ACCENT2}} !important; }
+  #caption { font-size: {{CAP_SIZE}}px; color: {{ACCENT2}}; opacity: 0; text-align: center; }
+</style>
+</head>
+<body>
+  <h1 id="title">{{TITLE}}</h1>
+  <div id="diagram"><pre class="mermaid">{{DIAGRAM_MMD}}</pre></div>
+  <div id="caption">{{CAPTION}}</div>
+<script>
+  window.__duration = {{DURATION}};
+  var __tl = null;
+  /* Mermaid 渲染是异步的：__ready 等待渲染完成后再构建时间轴 */
+  window.__ready = function () {
+    return mermaid.initialize({ startOnLoad: false, theme: "neutral",
+        securityLevel: "loose",
+        fontSize: {{NODE_SIZE}},
+        themeVariables: { edgeLabelBackground: "#1d2a4a", textColor: "#ffffff" },
+        flowchart: { useMaxWidth: true, htmlLabels: true,
+                     nodeSpacing: {{SGAP}}, rankSpacing: {{SGAP}} } }) ,
+      mermaid.run({ querySelector: ".mermaid" }).then(function () {
+        /* SVG 撑满容器：按 viewBox 比例计算实际像素尺寸（CSS 百分比参照
+           pre 容器会失效，故用 JS 精确设置）*/
+        var svg = document.querySelector("#diagram svg");
+        var box = document.getElementById("diagram");
+        if (svg && box) {
+          var vb = svg.viewBox.baseVal;
+          var bw = box.clientWidth, bh = box.clientHeight;
+          var scale = Math.min(bw / vb.width, bh / vb.height);
+          var sw = vb.width * scale, sh = vb.height * scale;
+          svg.removeAttribute("style");
+          svg.setAttribute("width", sw + "px");
+          svg.setAttribute("height", sh + "px");
+          svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+          /* 让节点文字同步放大（viewBox 缩放后文字跟着变大）*/
+        }
+        var D = window.__duration;
+        var nodes = document.querySelectorAll("#diagram .node");
+        var edges = document.querySelectorAll("#diagram .edgePath");
+        var tl = gsap.timeline({ paused: true });
+        /* 节奏预算：标题+容器 18% → 节点交错入场 50% → 连线描画 20% → 收尾 12% */
+        tl.fromTo("#title", { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 0)
+          .fromTo("#diagram", { scale: 0.95, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.7, ease: "power2.out" }, 0.2);
+        var nodeSpan = D * 0.50 / Math.max(nodes.length, 1);
+        nodes.forEach(function (el, i) {
+          tl.fromTo(el, { opacity: 0, scale: 0.7, transformOrigin: "50% 50%" },
+            { opacity: 1, scale: 1, duration: Math.min(0.6, nodeSpan * 1.4), ease: "back.out(1.6)" },
+            D * 0.18 + i * nodeSpan * 0.8);
+        });
+        var edgeAt = D * 0.18 + nodes.length * nodeSpan * 0.8;
+        edges.forEach(function (el, i) {
+          tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.out" },
+            edgeAt + i * 0.25);
+        });
+        tl.fromTo("#caption", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" },
+          D * 0.86);
+        __tl = tl;
+        window.__seek = function (t) {
+          if (__tl) __tl.time(Math.max(0, Math.min(t, __tl.duration())));
+        };
+        window.__seek(0);
+      });
+  };
+  /* 初始占位（__ready 完成前）*/
+  window.__seek = function (t) { if (__tl) __tl.time(t); };
+</script>
+</body>
+</html>

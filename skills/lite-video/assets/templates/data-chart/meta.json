@@ -1,0 +1,8 @@
+{
+  "name": "data-chart",
+  "title": "数据图表",
+  "description": "柱状图错峰生长 + 计数器滚动，适合数据榜单、对比分析、增长展示",
+  "tags": ["data", "chart", "statistics"],
+  "orientation": ["portrait", "landscape"],
+  "source": "inspired by HyperFrames data-chart / bar-chart-race blocks (heygen-com/hyperframes)"
+}

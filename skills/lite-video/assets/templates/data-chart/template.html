@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin:0; padding:0; width:{{WIDTH}}px; height:{{HEIGHT}}px; overflow:hidden; }
+  body {
+    background: linear-gradient(165deg, {{BG1}} 0%, {{BG2}} 100%);
+    font-family: "WenQuanYi Micro Hei", "Noto Sans CJK SC", "PingFang SC", sans-serif;
+    color: {{TEXT_COLOR}};
+  }
+  #title { position:absolute; top:7%; width:100%; text-align:center;
+    font-size:{{TITLE_SIZE}}px; font-weight:bold; letter-spacing:2px; opacity:0; }
+  #subtitle { position:absolute; top:calc(7% + {{TITLE_SIZE}}px + 20px); width:100%;
+    text-align:center; font-size:{{SUB_SIZE}}px; color:{{ACCENT}}; opacity:0; }
+  #chart { position:absolute; left:8%; width:84%; top:26%; height:48%;
+    display:flex; align-items:flex-end; justify-content:space-around; }
+  .bar { position:relative; width:{{BAR_W}}%; max-width:220px; border-radius:14px 14px 0 0; height:0; }
+  .bar .lbl { position:absolute; bottom:-70px; left:0; width:100%; text-align:center;
+    font-size:{{LBL_SIZE}}px; color:{{TEXT_COLOR}}; white-space:nowrap; }
+  .bar .val { position:absolute; top:-58px; left:0; width:100%; text-align:center;
+    font-size:{{VAL_SIZE}}px; font-weight:bold; color:{{ACCENT}}; opacity:0; }
+  #counter { position:absolute; top:78%; width:100%; text-align:center;
+    font-size:{{CTR_SIZE}}px; font-weight:bold; color:{{ACCENT}}; opacity:0; }
+  #cap { position:absolute; top:calc(78% + {{CTR_SIZE}}px + 16px); width:100%;
+    text-align:center; font-size:{{CAP_SIZE}}px; color:{{TEXT_COLOR}}; opacity:0; }
+</style>
+</head>
+<body>
+  <div id="title">{{TITLE}}</div>
+  <div id="subtitle">{{SUBTITLE}}</div>
+  <div id="chart"></div>
+  <div id="counter">0</div>
+  <div id="cap">{{CAPTION}}</div>
+<script>
+  window.__data = {{ITEMS_JSON}};
+  window.__duration = {{DURATION}};
+  (function () {
+    var D = window.__duration, data = window.__data;
+    var maxV = Math.max.apply(null, data.map(function (d) { return d.value; }));
+    var chart = document.getElementById("chart");
+    var colors = {{BAR_COLORS}};
+    var bars = data.map(function (d, i) {
+      var el = document.createElement("div");
+      el.className = "bar";
+      el.style.background = "linear-gradient(180deg, " + colors[i % colors.length] + ", " + colors[(i + 1) % colors.length] + "88)";
+      el.innerHTML = '<div class="val">' + d.display + '</div><div class="lbl">' + d.label + '</div>';
+      chart.appendChild(el);
+      return el;
+    });
+    var counterEl = document.getElementById("counter");
+    var ease = function (x) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; };
+    var c01 = function (x) { return Math.max(0, Math.min(1, x)); };
+    window.__seek = function (t) {
+      var p = c01(t / D);
+      var t1 = ease(c01(t / 1.0));
+      document.getElementById("title").style.opacity = t1;
+      document.getElementById("subtitle").style.opacity = ease(c01((t - 0.5) / 1.0));
+      document.getElementById("counter").style.opacity = ease(c01((t - 1.0) / 0.8));
+      document.getElementById("cap").style.opacity = ease(c01((t - D * 0.5) / 1.0));
+      var growStart = 1.0, growDur = D * 0.45, stagger = 0.35;
+      data.forEach(function (d, i) {
+        var local = c01((t - growStart - i * stagger) / growDur);
+        var h = ease(local) * (d.value / maxV) * 100;
+        bars[i].style.height = h + "%";
+        bars[i].querySelector(".val").style.opacity = local > 0.95 ? 1 : 0;
+      });
+      var cp = ease(c01((t - 1.0) / (D * 0.5)));
+      counterEl.textContent = Math.round(cp * maxV).toLocaleString("en-US") + "{{UNIT_SUFFIX}}";
+    };
+    window.__seek(0);
+  })();
+</script>
+</body>
+</html>

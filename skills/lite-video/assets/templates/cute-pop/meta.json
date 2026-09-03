@@ -1,0 +1,8 @@
+{
+  "name": "cute-pop",
+  "title": "可爱弹跳",
+  "description": "圆角卡片+表情装饰+果冻弹跳入场，适合轻松可爱、生活化、情感向内容",
+  "tags": ["cute", "pop", "playful"],
+  "orientation": ["portrait", "landscape"],
+  "source": "original, inspired by HyperFrames bounce/overshoot motion style"
+}

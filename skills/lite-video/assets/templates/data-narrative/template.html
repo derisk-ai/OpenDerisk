@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-libs" content="d3,gsap">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin:0; padding:0; width:{{WIDTH}}px; height:{{HEIGHT}}px; overflow:hidden; }
+  body {
+    background: linear-gradient(160deg, {{BG1}} 0%, {{BG2}} 100%);
+    font-family: "WenQuanYi Micro Hei", "Noto Sans CJK SC", "PingFang SC", sans-serif;
+    color: {{TEXT_COLOR}};
+    display: flex; flex-direction: column;
+    padding: {{PAD}}px {{PAGE_PAD}}px; gap: {{GAP}}px;
+  }
+  #title { font-size: {{TITLE_SIZE}}px; font-weight: bold; opacity: 0; margin: 0; }
+  #chart { flex: 1; background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 20px;
+    padding: {{CPAD}}px; opacity: 0; position: relative; }
+  #narr { min-height: {{NARR_H}}px; font-size: {{NARR_SIZE}}px; line-height: 1.55;
+    background: rgba(255,255,255,0.08); border-left: 6px solid {{ACCENT}};
+    border-radius: 12px; padding: {{CPAD}}px {{CPADX}}px; opacity: 0; }
+  /* D3 元素样式 */
+  .axis text { fill: #9fb3d4; font-size: {{AX_SIZE}}px; }
+  .axis line, .axis path { stroke: rgba(255,255,255,0.18); }
+  .grid line { stroke: rgba(255,255,255,0.07); }
+  .bar { fill: {{ACCENT}}; opacity: 0.45; }
+  .bar.hot { fill: {{ACCENT2}}; opacity: 1; }
+  .val { fill: #fff; font-size: {{VAL_SIZE}}px; font-weight: bold; opacity: 0; }
+  .marker { stroke: {{ACCENT2}}; stroke-width: 3; stroke-dasharray: 6 6; opacity: 0; }
+</style>
+</head>
+<body>
+  <h1 id="title">{{TITLE}}</h1>
+  <div id="chart"></div>
+  <div id="narr"></div>
+<script>
+  window.__duration = {{DURATION}};
+  (function () {
+    var D = window.__duration;
+    /* chart: {"points":[{"label":"2021","value":10},...]}；steps: ["叙述1","叙述2",...]
+       第 i 步高亮第 i 个数据点（Scrollama 分步思想 → 时间分步）*/
+    var chart = {{CHART_JSON}};
+    var steps = {{STEPS_JSON}};
+    var pts = chart.points || [];
+
+    /* --- D3：静态构建图表（无过渡动画，一切由 __seek 驱动）--- */
+    var box = document.getElementById("chart");
+    var W = box.clientWidth || {{WIDTH}} * 0.86;
+    var H = box.clientHeight || {{HEIGHT}} * 0.5;
+    var mg = { t: 20, r: 20, b: 44, l: 52 };
+    var svg = d3.select("#chart").append("svg")
+      .attr("width", W).attr("height", H);
+    var x = d3.scaleBand().domain(pts.map(function (p) { return p.label; }))
+      .range([mg.l, W - mg.r]).padding(0.35);
+    var y = d3.scaleLinear()
+      .domain([0, d3.max(pts, function (p) { return p.value; }) * 1.15 || 1])
+      .range([H - mg.b, mg.t]);
+    svg.append("g").attr("class", "grid")
+      .selectAll("line").data(y.ticks(5)).join("line")
+      .attr("x1", mg.l).attr("x2", W - mg.r)
+      .attr("y1", function (d) { return y(d); })
+      .attr("y2", function (d) { return y(d); });
+    svg.append("g").attr("class", "axis")
+      .attr("transform", "translate(0," + (H - mg.b) + ")")
+      .call(d3.axisBottom(x).tickSize(0));
+    svg.append("g").attr("class", "axis")
+      .attr("transform", "translate(" + mg.l + ",0)")
+      .call(d3.axisLeft(y).ticks(5).tickSize(0));
+    svg.selectAll(".bar").data(pts).join("rect")
+      .attr("class", "bar").attr("x", function (d) { return x(d.label); })
+      .attr("width", x.bandwidth()).attr("y", mg.t)
+      .attr("height", function (d) { return Math.max(0, y(0) - y(d.value)); })
+      .attr("rx", 8);
+    svg.selectAll(".val").data(pts).join("text")
+      .attr("class", "val").attr("text-anchor", "middle")
+      .attr("x", function (d) { return x(d.label) + x.bandwidth() / 2; })
+      .attr("y", function (d) { return y(d.value) - 10; })
+      .text(function (d) { return d.display || d.value; });
+
+    /* --- GSAP：时间分步驱动（timeline paused，__seek 精确定位）--- */
+    var narr = document.getElementById("narr");
+    var nSteps = Math.max(steps.length, 1);
+    var intro = D * 0.15;                       /* 开场：标题+图表入场 */
+    var stepSpan = (D * 0.70) / nSteps;         /* 每步时长预算 */
+    var tl = gsap.timeline({ paused: true });
+    tl.fromTo("#title", { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 0)
+      .fromTo("#chart", { scale: 0.96, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.7, ease: "power2.out" }, 0.2)
+      .fromTo(".bar", { scaleY: 0, transformOrigin: "50% 100%" },
+        { scaleY: 1, stagger: 0.12, duration: 0.7, ease: "power3.out" }, 0.5);
+    steps.forEach(function (text, i) {
+      var at = intro + i * stepSpan;
+      var valNode = d3.selectAll(".val").nodes()[i % Math.max(pts.length, 1)];
+      /* 高亮第 i 根柱 + 数值浮现 + 叙述文本切换 */
+      tl.call(function () {
+        d3.selectAll(".bar").classed("hot", function (d, j) { return j === i; });
+      }, null, at)
+      .to(narr, { opacity: 0, duration: 0.15 }, at)
+      .call(function () { narr.textContent = text; }, null, at + 0.15)
+      .to(narr, { opacity: 1, duration: 0.25, ease: "power2.out" }, at + 0.15);
+      if (valNode) {
+        tl.to(valNode, { opacity: 1, duration: 0.4 }, at + 0.1);
+      }
+    });
+    tl.to(narr, { opacity: 0.85, duration: 0.5 }, D - 0.6);
+    window.__ready = function () { return Promise.resolve(); };
+    window.__seek = function (t) {
+      tl.time(Math.max(0, Math.min(t, tl.duration())));
+    };
+    window.__seek(0);
+  })();
+</script>
+</body>
+</html>
