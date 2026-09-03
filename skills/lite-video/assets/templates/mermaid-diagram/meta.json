@@ -1,0 +1,9 @@
+{
+  "name": "mermaid-diagram",
+  "title": "逻辑图解（方案C）",
+  "description": "Mermaid 逻辑图（流程/架构/时序）+ GSAP 节点逐步点亮与连线描画，适合技术方案、架构说明、因果推理",
+  "tags": ["mermaid", "gsap", "diagram", "plan-c"],
+  "orientation": ["portrait", "landscape"],
+  "libs": ["mermaid", "gsap"],
+  "source": "成熟方案C（D3/Mermaid 逻辑图 + GSAP 过渡），Mermaid 静态渲染保证确定性"
+}

@@ -1,0 +1,54 @@
+identity:
+  name: "Premium Minimalist"
+  category: minimalist
+  mood: refined, calm, premium
+  pace: slow
+  best_for: "品牌叙事、深度分析、纪录片感解说、高端产品介绍"
+  source: "migrated from OpenMontage styles/premium-minimalist.yaml"
+
+visual_language:
+  color_palette:
+    primary: ["#D4AF37", "#B8860B"]
+    accent: ["#8A9BA8", "#5C6B73"]
+    background: "#0A0A0A"
+    text: "#FAFAFA"
+    muted: "#8A9BA8"
+  template_injection:
+    TEXT_COLOR: "#FFFFFF"
+    BG1: "#0A0A0A"
+    BG2: "#1A1A2E"
+    ACCENT: "#D4AF37"
+    ACCENT2: "#8A9BA8"
+    BAR_COLORS: ["#D4AF37", "#8A9BA8", "#5C6B73", "#B8860B", "#6B7A85", "#4A5560"]
+  typography:
+    headings: { font: "Noto Serif", weight: 600 }
+    body: { font: "Noto Sans", weight: 300, line_height: 1.7 }
+  motion:
+    transitions: [fade, slow-zoom, dissolve]
+    animation_style: "ease-out cubic, restrained, elegant"
+    pacing_rules:
+      min_scene_hold_seconds: 3.0
+      max_scene_hold_seconds: 10
+      text_card_hold_seconds: 4.0
+      transition_duration_seconds: 0.6
+    entrance: "fade + gentle rise (0 -> 1 over 1.2s)"
+    exit: "fade to black"
+  audio:
+    voice_style: "calm, measured, confident, slightly slow"
+    music_mood: "ambient, cinematic, minimal piano"
+    music_volume: 0.10
+
+asset_generation:
+  image_prompt_prefix: "minimalist cinematic, dark moody, elegant composition, subtle lighting, "
+  image_negative_prompt: "cluttered, busy, neon, cartoon, oversaturated"
+  consistency_anchors:
+    - "金色 #D4AF37 仅用于关键强调"
+    - "近黑背景 #0A0A0A 保持克制高级感"
+    - "大量留白"
+    - "慢速优雅的镜头运动"
+
+quality_rules:
+  - "每镜信息量克制，单焦点"
+  - "动效宁慢勿快"
+  - "旁白语速放慢 10%（--rate -10%）"
+  - "避免多于 3 种颜色同屏"

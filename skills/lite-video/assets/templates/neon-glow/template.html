@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin:0; padding:0; width:{{WIDTH}}px; height:{{HEIGHT}}px; overflow:hidden; }
+  body {
+    background: linear-gradient(170deg, {{BG1}} 0%, {{BG2}} 100%);
+    font-family: "WenQuanYi Micro Hei", "Noto Sans CJK SC", "PingFang SC", sans-serif;
+    color: {{TEXT_COLOR}};
+  }
+  /* 赛博网格地面 */
+  #grid { position:absolute; bottom:0; left:-20%; width:140%; height:38%;
+    background-image:
+      linear-gradient(transparent 0, transparent calc(100% - 2px), {{ACCENT}}55 100%),
+      linear-gradient(90deg, transparent 0, transparent calc(100% - 2px), {{ACCENT}}55 100%);
+    background-size: 60px 60px;
+    transform: perspective(500px) rotateX(58deg);
+    transform-origin: bottom; opacity:0;
+  }
+  /* 扫描线 */
+  #scan { position:absolute; left:0; width:100%; height:3px;
+    background:linear-gradient(90deg, transparent, {{ACCENT2}}, transparent);
+    box-shadow:0 0 18px {{ACCENT2}}; opacity:0; }
+  /* 辉光标题 */
+  #title { position:absolute; top:28%; width:100%; text-align:center;
+    font-size:{{TITLE_SIZE}}px; font-weight:bold; letter-spacing:6px;
+    color:{{ACCENT}}; text-shadow:0 0 12px {{ACCENT}}, 0 0 40px {{ACCENT}}; opacity:0; }
+  #subtitle { position:absolute; top:calc(28% + {{TITLE_SIZE}}px + 24px); width:100%;
+    text-align:center; font-size:{{SUB_SIZE}}px; color:{{ACCENT2}};
+    text-shadow:0 0 10px {{ACCENT2}}; opacity:0; letter-spacing:3px; }
+  /* 数据流光柱 */
+  .beam { position:absolute; bottom:0; width:4px; background:linear-gradient(180deg, transparent, {{ACCENT2}});
+    box-shadow:0 0 12px {{ACCENT2}}; opacity:0; }
+  #counter { position:absolute; top:60%; width:100%; text-align:center;
+    font-size:{{CTR_SIZE}}px; font-weight:bold; color:{{TEXT_COLOR}};
+    text-shadow:0 0 16px {{ACCENT2}}, 0 0 48px {{ACCENT2}}; opacity:0; }
+  #cap { position:absolute; top:calc(60% + {{CTR_SIZE}}px + 20px); width:100%;
+    text-align:center; font-size:{{CAP_SIZE}}px; color:{{ACCENT2}}; opacity:0; }
+</style>
+</head>
+<body>
+  <div id="grid"></div>
+  <div id="scan"></div>
+  <div class="beam" id="b1"></div>
+  <div class="beam" id="b2"></div>
+  <div class="beam" id="b3"></div>
+  <div id="title">{{TITLE}}</div>
+  <div id="subtitle">{{SUBTITLE}}</div>
+  <div id="counter">0{{UNIT_SUFFIX}}</div>
+  <div id="cap">{{CAPTION}}</div>
+<script>
+  window.__duration = {{DURATION}};
+  (function () {
+    var D = window.__duration;
+    var W = {{W}}, H = {{HEIGHT}};
+    var target = {{COUNTER_VALUE}};
+    function ease(x) { x = Math.max(0, Math.min(1, x)); return x < 0.5 ? 2*x*x : 1 - Math.pow(-2*x+2,2)/2; }
+    window.__seek = function (t) {
+      // 网格浮现
+      document.getElementById("grid").style.opacity = ease(t / 1.0);
+      // 扫描线上下巡逻（纯时间函数）
+      var scan = document.getElementById("scan");
+      var pos = (Math.sin(t * 0.8) * 0.5 + 0.5);
+      scan.style.top = (pos * H) + "px";
+      scan.style.opacity = 0.7;
+      // 辉光标题：脉冲发光
+      var title = document.getElementById("title");
+      var pulse = 0.75 + 0.25 * Math.sin(t * 2.4);
+      title.style.opacity = ease((t - 0.2) / 0.8);
+      title.style.textShadow = "0 0 " + (12 * pulse) + "px {{ACCENT}}, 0 0 " + (40 * pulse) + "px {{ACCENT}}";
+      document.getElementById("subtitle").style.opacity = ease((t - 0.8) / 0.8);
+      // 流光柱：错峰上升 + 呼吸
+      ["b1", "b2", "b3"].forEach(function (id, i) {
+        var el = document.getElementById(id);
+        el.style.left = (W * (0.2 + i * 0.3)) + "px";
+        var grow = ease(Math.max(0, Math.min(1, (t - 1.0 - i * 0.4) / 1.2)));
+        el.style.height = (grow * H * 0.3 * (0.6 + 0.4 * Math.sin(t * 1.8 + i * 2))) + "px";
+        el.style.opacity = grow * (0.6 + 0.4 * Math.sin(t * 2.2 + i));
+      });
+      // 计数器辉光滚动
+      var counter = document.getElementById("counter");
+      counter.style.opacity = ease((t - 1.2) / 0.8);
+      var cp = ease(Math.max(0, Math.min(1, (t - 1.2) / (D * 0.45))));
+      counter.textContent = Math.round(cp * target).toLocaleString("en-US") + "{{UNIT_SUFFIX}}";
+      document.getElementById("cap").style.opacity = ease((t - D * 0.55) / 1.0);
+    };
+    window.__seek(0);
+  })();
+</script>
+</body>
+</html>

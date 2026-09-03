@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin:0; padding:0; width:{{WIDTH}}px; height:{{HEIGHT}}px; overflow:hidden; }
+  body {
+    background: linear-gradient(165deg, {{BG1}} 0%, {{BG2}} 100%);
+    font-family: "WenQuanYi Micro Hei", "Noto Sans CJK SC", "PingFang SC", sans-serif;
+    color: {{TEXT_COLOR}};
+  }
+  .orb { position:absolute; border-radius:50%; filter:blur(30px); }
+  #card { position:absolute; top:50%; left:50%; width:82%;
+    transform:translate(-50%,-50%) scale(0.9); opacity:0;
+    background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18);
+    border-radius:28px; padding:{{PAD}}px; text-align:center;
+    box-shadow:0 20px 60px rgba(0,0,0,0.35); }
+  #kicker { font-size:{{KICKER_SIZE}}px; letter-spacing:8px; color:{{ACCENT2}};
+    opacity:0; margin-bottom:20px; }
+  #text { font-size:{{TEXT_SIZE}}px; font-weight:bold; line-height:1.6; }
+  #text .hl { color:{{ACCENT}}; }
+  #sub { font-size:{{SUB_SIZE}}px; color:{{TEXT_COLOR}}; margin-top:24px; opacity:0; }
+</style>
+</head>
+<body>
+  <div class="orb" id="o1"></div>
+  <div class="orb" id="o2"></div>
+  <div id="card">
+    <div id="kicker">{{KICKER}}</div>
+    <div id="text"></div>
+    <div id="sub">{{SUBTITLE}}</div>
+  </div>
+<script>
+  window.__duration = {{DURATION}};
+  (function () {
+    var D = window.__duration;
+    var textEl = document.getElementById("text");
+    // TEXT 为普通文本，HIGHLIGHT 为主文中要高亮的词（逗号分隔），命中则加 .hl
+    var plain = {{TEXT_JSON}};
+    var hls = ({{HIGHLIGHT_JSON}} || []).filter(Boolean);
+    var chars = [];
+    (function build() {
+      var rest = plain;
+      while (rest.length) {
+        var idx = -1, hit = "";
+        hls.forEach(function (h) {
+          var i = rest.indexOf(h);
+          if (i >= 0 && (idx < 0 || i < idx)) { idx = i; hit = h; }
+        });
+        if (idx < 0) { chars.push({ t: rest, hl: false }); break; }
+        if (idx > 0) chars.push({ t: rest.slice(0, idx), hl: false });
+        chars.push({ t: hit, hl: true });
+        rest = rest.slice(idx + hit.length);
+      }
+      chars.forEach(function (c) {
+        var s = document.createElement("span");
+        s.textContent = c.t;
+        if (c.hl) s.className = "hl";
+        s.style.opacity = 0;
+        textEl.appendChild(s);
+      });
+    })();
+    var spans = Array.prototype.slice.call(textEl.children);
+    var total = plain.length;
+    function sizeOrbs() {
+      var o1 = document.getElementById("o1"), o2 = document.getElementById("o2");
+      o1.style.width = o1.style.height = ({{W}} * 0.5) + "px";
+      o1.style.background = "{{ACCENT}}33";
+      o2.style.width = o2.style.height = ({{W}} * 0.35) + "px";
+      o2.style.background = "{{ACCENT2}}33";
+    }
+    sizeOrbs();
+    var ease = function (x) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; };
+    var c01 = function (x) { return Math.max(0, Math.min(1, x)); };
+    window.__seek = function (t) {
+      var card = document.getElementById("card");
+      var e1 = ease(c01(t / 0.9));
+      card.style.opacity = e1;
+      card.style.transform = "translate(-50%,-50%) scale(" + (0.9 + 0.1 * e1) + ")";
+      document.getElementById("kicker").style.opacity = ease(c01((t - 0.5) / 0.6));
+      document.getElementById("sub").style.opacity = ease(c01((t - D * 0.65) / 0.8));
+      // 高亮词与文字逐字点亮：占据 1.2s ~ D*0.7 区间
+      var start = 1.2, end = Math.max(D * 0.7, start + 0.5);
+      var reveal = c01((t - start) / (end - start));
+      var shown = Math.floor(reveal * total);
+      var acc = 0;
+      spans.forEach(function (s) {
+        var len = s.textContent.length;
+        var vis = Math.max(0, Math.min(1, (shown - acc) / len));
+        s.style.opacity = vis;
+        acc += len;
+      });
+      // 光斑漂浮（纯时间函数）
+      var o1 = document.getElementById("o1"), o2 = document.getElementById("o2");
+      o1.style.left = (10 + Math.sin(t * 0.5) * 6) + "%";
+      o1.style.top = (8 + Math.cos(t * 0.4) * 5) + "%";
+      o2.style.right = (8 + Math.cos(t * 0.45) * 6) + "%";
+      o2.style.bottom = (10 + Math.sin(t * 0.55) * 5) + "%";
+    };
+    window.__seek(0);
+  })();
+</script>
+</body>
+</html>

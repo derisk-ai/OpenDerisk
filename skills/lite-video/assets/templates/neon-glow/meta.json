@@ -1,0 +1,8 @@
+{
+  "name": "neon-glow",
+  "title": "霓虹流光",
+  "description": "发光文字+扫描线+辉光脉冲+赛博网格，适合科技感、未来感、酷炫内容",
+  "tags": ["neon", "glow", "cyber", "cool"],
+  "orientation": ["portrait", "landscape"],
+  "source": "original, inspired by HyperFrames glitch/light effects"
+}

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin:0; padding:0; width:{{WIDTH}}px; height:{{HEIGHT}}px; overflow:hidden; }
+  body {
+    background: linear-gradient(165deg, {{BG1}} 0%, {{BG2}} 100%);
+    font-family: "WenQuanYi Micro Hei", "Noto Sans CJK SC", "PingFang SC", sans-serif;
+    color: {{TEXT_COLOR}};
+  }
+  #title { position:absolute; top:5%; width:100%; text-align:center;
+    font-size:{{TITLE_SIZE}}px; font-weight:bold; opacity:0; }
+  #list { position:absolute; top:16%; left:7%; width:86%; }
+  .item { display:flex; align-items:center; background:rgba(255,255,255,0.07);
+    border:1px solid rgba(255,255,255,0.14); border-radius:18px;
+    padding:{{PAD}}px; margin-bottom:{{GAP}}px; opacity:0;
+    transform:translateX(120px); }
+  .rank { flex:none; width:{{BADGE}}px; height:{{BADGE}}px; border-radius:50%; color:#fff;
+    background:linear-gradient(135deg, {{ACCENT}}, {{ACCENT2}});
+    display:flex; align-items:center; justify-content:center;
+    font-size:{{RANK_SIZE}}px; font-weight:bold; margin-right:{{PAD}}px; }
+  .body { flex:1; min-width:0; }
+  .name { font-size:{{NAME_SIZE}}px; font-weight:bold;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .desc { font-size:{{DESC_SIZE}}px; color:{{TEXT_COLOR}}; margin-top:6px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pbar { height:{{BAR_H}}px; background:rgba(255,255,255,0.1); border-radius:6px; margin-top:12px; }
+  .pfill { height:100%; width:0%; border-radius:6px;
+    background:linear-gradient(90deg, {{ACCENT}}, {{ACCENT2}}); }
+  .metric { flex:none; margin-left:{{PAD}}px; font-size:{{METRIC_SIZE}}px;
+    font-weight:bold; color:{{ACCENT2}}; }
+</style>
+</head>
+<body>
+  <div id="title">{{TITLE}}</div>
+  <div id="list"></div>
+<script>
+  window.__data = {{ITEMS_JSON}};
+  window.__duration = {{DURATION}};
+  (function () {
+    var D = window.__duration, data = window.__data;
+    var list = document.getElementById("list");
+    var items = data.map(function (d, i) {
+      var el = document.createElement("div");
+      el.className = "item";
+      el.innerHTML = '<div class="rank">' + (i + 1) + '</div>' +
+        '<div class="body"><div class="name">' + d.name + '</div>' +
+        '<div class="desc">' + (d.desc || "") + '</div>' +
+        '<div class="pbar"><div class="pfill"></div></div></div>' +
+        '<div class="metric">' + (d.metric || "") + '</div>';
+      list.appendChild(el);
+      return el;
+    });
+    var ease = function (x) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; };
+    var c01 = function (x) { return Math.max(0, Math.min(1, x)); };
+    var maxM = Math.max.apply(null, data.map(function (d) { return d.value || 0; }));
+    window.__seek = function (t) {
+      document.getElementById("title").style.opacity = ease(c01(t / 0.8));
+      var stagger = (D * 0.7) / Math.max(data.length, 1);
+      items.forEach(function (el, i) {
+        var local = c01((t - 0.6 - i * stagger) / 0.9);
+        el.style.opacity = local;
+        el.style.transform = "translateX(" + (120 * (1 - ease(local))) + "px)";
+        var grow = c01((t - 1.2 - i * stagger) / 1.2);
+        var ratio = data[i].value ? (data[i].value / maxM) : 1;
+        el.querySelector(".pfill").style.width = (ease(grow) * ratio * 100) + "%";
+      });
+    };
+    window.__seek(0);
+  })();
+</script>
+</body>
+</html>

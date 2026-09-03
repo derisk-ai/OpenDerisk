@@ -1,0 +1,32 @@
+# lite-video TTS 配置模板
+# 复制到 <项目目录>/tts.yaml（项目级，优先）或留在 skill 目录（全局默认）。
+# 优先级：CLI 参数 > 环境变量 > tts.yaml > 内置默认。
+# 注意：请勿把含真实 key 的配置文件打包分发。
+
+# provider: auto（默认，质量优先自动路由）或手动锁定：
+#   piper / cmd / dashscope / edge-tts
+provider: auto
+
+# 音色：
+#   edge-tts 用 zh-CN 系：男声 zh-CN-YunxiNeural / 女声 zh-CN-XiaoxiaoNeural
+#   dashscope 用 cosyvoice 音色：longwan（男）/ longxiaochun（女）等
+# voice: zh-CN-YunxiNeural
+
+# 语速：+10% 更快，-10% 更慢
+# rate: +0%
+
+# piper 句间停顿（秒）：数值越大节奏越松，0 则无停顿
+# piper_silence: 0.35
+
+# dashscope（正规云，韵律自然，中英混读好）：
+#   方式一（推荐）：环境变量 export DASHSCOPE_API_KEY=sk-xxx
+#   方式二：写在这里（注意保管，勿外传）
+# dashscope_api_key: sk-xxxxxxxx
+
+# cmd provider（接入任意引擎的逃生通道）：
+#   占位符 {text} 朗读文本 / {out} 输出路径（输出 wav 或 mp3）
+#   例：接入本地其他 TTS 二进制
+# cmd_template: "my-tts --text {text} --out {out}"
+
+# piper 模型路径（默认自动搜索 项目目录/piper_model、~/.local/share/piper）
+# piper_model: /path/to/zh_CN-huayan-medium.onnx
