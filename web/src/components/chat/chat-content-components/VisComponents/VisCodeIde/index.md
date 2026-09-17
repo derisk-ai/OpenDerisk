@@ -11,7 +11,7 @@ group:
 ````jsx
 import React from 'react';
 import { Space } from 'antd';
-import { VisCodeIde } from '@alipay/uni-chat';
+import { VisCodeIde } from '@derisk/vis';
 
 export default () => {
   return (

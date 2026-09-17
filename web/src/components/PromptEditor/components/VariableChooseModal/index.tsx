@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-// import { Highlight } from '@alipay/tech-ui';
 import { Rect } from '@codemirror/view';
 import { Empty, Flex, Popover, Typography } from 'antd';
 import React from 'react';

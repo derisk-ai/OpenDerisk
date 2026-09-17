@@ -11,7 +11,7 @@ group:
 ```jsx
 import React from 'react';
 import { Space } from 'antd';
-import { VisLLM } from '@alipay/uni-chat';
+import { VisLLM } from '@derisk/vis';
 
 export default () => {
   return (
@@ -34,7 +34,7 @@ export default () => {
             "token_use": 256,
             "token_speed": 45.8,
             "llm_model": "gpt-4-turbo",
-            "llm_avatar": "https://local.alipay/avatars/ai-assistant.png",
+            "llm_avatar": "https://example.com/avatars/ai-assistant.png",
             "start_time": "2024-01-15T14:30:00Z",
             "firt_out_time": "2024-01-15T14:30:02.345Z",
             "cost": 2345,
@@ -60,7 +60,7 @@ export default () => {
             "token_use": 256,
             "token_speed": 45.8,
             "llm_model": "gpt-4-turbo",
-            "llm_avatar": "https://local.alipay/avatars/ai-assistant.png",
+            "llm_avatar": "https://example.com/avatars/ai-assistant.png",
             "start_time": "2024-01-15T14:30:00Z",
             "firt_out_time": "2024-01-15T14:30:02.345Z",
             "cost": 2345,
