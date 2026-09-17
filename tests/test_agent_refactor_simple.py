@@ -101,8 +101,8 @@ def create_llm_client():
 
         provider = ProviderConfig(
             provider="openai",
-            api_base="https://antchat.alipay.com/v1",
-            api_key="fbCTZnIbReh1vVW8oySViGHhrQ8fK2mS",
+            api_base="https://xx/v1",
+            api_key="YOUR_API_KEY",
         )
 
         model = ModelConfig(name="DeepSeek-V3", temperature=0.7, max_new_tokens=40960)
@@ -558,7 +558,7 @@ async def main():
     """主测试入口"""
     logger.info("\n" + "=" * 70)
     logger.info("开始 Agent 重构验证测试")
-    logger.info("模型配置: DeepSeek-V3 @ https://antchat.alipay.com/v1")
+    logger.info("模型配置: DeepSeek-V3")
     logger.info("=" * 70)
 
     # 测试基础设施模块

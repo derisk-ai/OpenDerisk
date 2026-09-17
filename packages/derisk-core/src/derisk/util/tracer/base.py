@@ -360,6 +360,5 @@ def _parse_span_id(body: Any) -> Optional[str]:
 
 
 def new_trace_id() -> str:
-    # todo: 按照站内规则重新生产traceId
-    # https://yuque.antfin.com/middleware/tracer/id_generate
+    # todo: 按照链路追踪规范重新生成 traceId
     return uuid.uuid4().hex

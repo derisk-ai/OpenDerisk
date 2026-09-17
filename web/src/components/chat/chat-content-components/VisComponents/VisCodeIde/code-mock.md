@@ -80,7 +80,6 @@ code something...
 js
 ```js
 import React from 'react';
-// import { CodePreview } from '@alipay/uni-chat';
 
 // import Title from 'antd/es/skeleton/Title';
 import { isEqual } from 'lodash';
@@ -106,14 +105,10 @@ export default React.memo(VisCodeIde, isEqual);
 json
 ```json
 {
-  "name": "@alipay/uni-chat",
+  "name": "@derisk/vis",
   "version": "1.1.92",
-  "description": "A library project powered by bigfish-library",
-  "repository": {
-    "type": "git",
-    "url": "https://code.alipay.com/tr-web/UniChat"
-  },
-  "author": "will.jc",
+  "description": "A vis component library project",
+  "author": "OpenDerisk",
   "module": "dist/index.js",
   "typings": "dist/index.d.ts",
   "files": [
@@ -123,19 +118,14 @@ json
     "assets.json"
   ],
   "scripts": {
-    "build": "bigfish-lib build",
-    "build:watch": "bigfish-lib build -w",
-    "ci": "tnpm run lint && jest --coverage --passWithNoTests tnpm run lint && jest --coverage --passWithNoTests tnpm run lint && jest --coverage --passWithNoTests tnpm run lint && jest --coverage --passWithNoTests tnpm run lint && jest --coverage --passWithNoTests tnpm run lint && jest --coverage --passWithNoTests",
+    "build": "father build",
+    "build:watch": "father build -w",
+    "ci": "npm run lint && jest --coverage --passWithNoTests",
     "cov": "jest --coverage",
-    "create": "bigfish-lib create",
-    "deploy": "bigfish-lib deploy",
-    "dev": "bigfish-lib doc dev",
-    "doctor": "bigfish-lib doctor",
-    "lint": "bigfish-lib lint",
-    "prepare": "bigfish-lib setup && husky install",
-    "prepublishOnly": "bigfish-lib prepublish",
-    "pull": "bigfish-lib pull",
-    "start": "sudo PORT=443 HTTPS=true tnpm run dev",
+    "dev": "dumi dev",
+    "lint": "eslint --fix .",
+    "prepare": "husky install",
+    "start": "npm run dev",
     "test": "jest"
   },
   "commitlint": {
@@ -148,22 +138,19 @@ json
       "prettier --cache --write --no-error-on-unmatched-pattern"
     ],
     "*.{js,jsx}": [
-      "bigfish-lib lint --fix --eslint-only",
+      "eslint --fix",
       "prettier --cache --write"
     ],
     "*.{css,less}": [
-      "bigfish-lib lint --fix --stylelint-only",
+      "stylelint --fix",
       "prettier --cache --write"
     ],
     "*.{ts,tsx}": [
-      "bigfish-lib lint --fix --eslint-only",
+      "eslint --fix",
       "prettier --cache --parser=typescript --write"
     ]
   },
   "dependencies": {
-    "@alipay/sregpt-ui": "^1.0.16",
-    "@alipay/tech-ui": "^3.14.5",
-    "@alipay/vis-datafun": "^1.0.0",
     "@ant-design/cssinjs": "^1.24.0",
     "@ant-design/icons": "^5.5.1",
     "@ant-design/x": "^1.0.0-alpha.5",
@@ -207,8 +194,6 @@ json
     "vfile": "^5.3.7"
   },
   "devDependencies": {
-    "@ali/ci": "^4.26.0",
-    "@alipay/bigfish-library": "^4.0.0",
     "@commitlint/cli": "^17.3.0",
     "@commitlint/config-conventional": "^17.3.0",
     "@testing-library/jest-dom": "^5.1.1",
@@ -242,16 +227,9 @@ json
     "install-node": "16"
   },
   "publishConfig": {
-    "registry": "https://registry.antgroup-inc.cn"
+    "registry": "https://registry.npmjs.org"
   },
-  "ci": {
-    "type": "aci"
-  },
-  "dumiAssets": "assets.json",
-  "tnpm": {
-    "mode": "npm"
-  },
-  "yuyanId": "180020010101325639"
+  "dumiAssets": "assets.json"
 }
 
 ```

@@ -91,8 +91,8 @@ def create_llm_client():
 
     provider_config = {
         "provider": "openai",
-        "api_base": "https://antchat.alipay.com/v1",
-        "api_key": "fbCTZnIbReh1vVW8oySViGHhrQ8fK2mS",
+        "api_base": "https://xxx/v1",
+        "api_key": "YOUR_API_KEY",
     }
 
     model_config = {

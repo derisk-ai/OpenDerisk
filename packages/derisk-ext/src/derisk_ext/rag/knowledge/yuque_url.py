@@ -57,12 +57,12 @@ class YUQUEURLKnowledge(Knowledge):
             if self._path is not None:
                 if self._path.count("/") < 5:
                     raise ValueError(f"yuque url: {self._path} format is incorrect!")
-                _, _, _, group, book_slug, doc_id = self._path.split("/", 5)
+                scheme, _, host, group, book_slug, doc_id = self._path.split("/", 5)
                 web_reader = AntYuqueLoader(access_token=self._doc_token)
                 book = web_reader.single_doc(
                     group=group, book_slug=book_slug, doc_id=doc_id
                 )
-                yuque_url = f"https://yuque.antfin.com/{group}/{book_slug}/{doc_id}"
+                yuque_url = f"{scheme}//{host}/{group}/{book_slug}/{doc_id}"
 
                 if book['type'] == 'Sheet':
                     logger.info(f"yuque url {yuque_url} type is sheet, need sheet split method")

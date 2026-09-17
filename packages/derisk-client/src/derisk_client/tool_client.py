@@ -44,7 +44,7 @@ class ToolModel(BaseAssetModel):
 
 class ToolClient:
     """
-    A client for interacting with the Alipay Tool Base API.
+    A client for interacting with the Tool Base API.
     """
 
     def __init__(self,
