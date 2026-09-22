@@ -14,63 +14,33 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Generic,
     List,
     Optional,
     Tuple,
     Type,
-    Union,
     TypeVar,
-    Generic,
+    Union,
 )
-from derisk._private.pydantic import ConfigDict, Field, PrivateAttr, BaseModel
-from derisk.core import LLMClient, ModelMessageRoleType, PromptTemplate, HumanMessage
+
+from derisk._private.pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from derisk.core import HumanMessage, LLMClient, ModelMessageRoleType, PromptTemplate
 from derisk.core.interface.scheduler import Scheduler
+from derisk.sandbox.base import SandboxBase
 from derisk.util.error_types import LLMChatError
 from derisk.util.executor_utils import blocking_func_to_async
 from derisk.util.logger import colored, digest
 from derisk.util.tracer import SpanType, root_tracer
-from derisk.sandbox.base import SandboxBase
-from . import system_tool_dict
-from .action.base import Action, ActionOutput
-from .agent import Agent, AgentContext, AgentMessage
-from .base_parser import AgentParser
-from .file_system.file_tree import TreeNodeData
-from .memory.agent_memory import AgentMemory
-from .memory.gpts.agent_system_message import AgentSystemMessage
-from .memory.gpts.agent_system_message import SystemMessageType, AgentPhase
-from .memory.gpts.base import GptsMessage
-from .memory.gpts.gpts_memory import GptsMemory, AgentTaskContent, AgentTaskType
-from .profile.base import ProfileConfig
-from .reasoning.reasoning_arg_supplier import ReasoningArgSupplier
-from .role import AgentRunMode, Role
-from .sandbox_manager import SandboxManager
-from .schema import (
-    Status,
-    DynamicParam,
-    DynamicParamView,
-    DynamicParamRenderType,
-    DynamicParamType,
-    AgentSpaceMode,
-    MessageMetrics,
-    ActionInferenceMetrics,
-)
-from .types import AgentReviewInfo, MessageType
-from .variable import VariableManager
-from .. import BlankAction
 
-from ..resource.base import Resource
-from ..util.ext_config import ExtConfigHolder
-from ..util.llm.llm import LLMConfig, get_llm_strategy_cls
-from ..util.llm.llm_client import AIWrapper, AgentLLMOut
 from ...context.event import (
-    ChatPayload,
-    StepPayload,
-    ActionPayload,
-    LLMPayload,
-    EventType,
     PAYLOAD_TYPE,
-    Payload,
+    ActionPayload,
+    ChatPayload,
     Event,
+    EventType,
+    LLMPayload,
+    Payload,
+    StepPayload,
 )
 from ...context.operator import ConfigItem
 from ...context.window import ContextWindow
@@ -78,6 +48,39 @@ from ...util.annotations import Deprecated
 from ...util.date_utils import current_ms
 from ...util.json_utils import serialize
 from ...util.template_utils import render
+from .. import BlankAction
+from ..resource.base import Resource
+from ..util.ext_config import ExtConfigHolder
+from ..util.llm.llm import LLMConfig, get_llm_strategy_cls
+from ..util.llm.llm_client import AgentLLMOut, AIWrapper
+from .action.base import Action, ActionOutput
+from .agent import Agent, AgentContext, AgentMessage
+from .base_parser import AgentParser
+from .file_system.file_tree import TreeNodeData
+from .memory.agent_memory import AgentMemory
+from .memory.gpts.agent_system_message import (
+    AgentPhase,
+    AgentSystemMessage,
+    SystemMessageType,
+)
+from .memory.gpts.base import GptsMessage
+from .memory.gpts.gpts_memory import AgentTaskContent, AgentTaskType, GptsMemory
+from .profile.base import ProfileConfig
+from .reasoning.reasoning_arg_supplier import ReasoningArgSupplier
+from .role import AgentRunMode, Role
+from .sandbox_manager import SandboxManager
+from .schema import (
+    ActionInferenceMetrics,
+    AgentSpaceMode,
+    DynamicParam,
+    DynamicParamRenderType,
+    DynamicParamType,
+    DynamicParamView,
+    MessageMetrics,
+    Status,
+)
+from .types import AgentReviewInfo, MessageType
+from .variable import VariableManager
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +89,6 @@ T = TypeVar("T")
 from .agent_info import (
     AgentInfo,
     AgentMode,
-    AgentRegistry,
     PermissionAction,
     PermissionRuleset,
 )
@@ -626,9 +628,8 @@ class ConversableAgent(Role, Agent):
         根据 Agent 的工具绑定配置（来自编辑页面保存的 resource_tool），
         通过 tool_manager 获取已绑定的工具列表并注入。
         """
-        from ..tools.registry import tool_registry, register_builtin_tools
+        from ..tools.registry import register_builtin_tools, tool_registry
         from ..tools.tool_manager import tool_manager
-        from ..tools.base import ToolCategory
 
         # 确保工具已注册
         if not tool_registry._initialized:
@@ -693,11 +694,10 @@ class ConversableAgent(Role, Agent):
         def _load_tool_bindings_from_db(app_id: str, agent_name: str):
             """从数据库 ServeEntity.resource_tool 加载工具绑定配置"""
             try:
-                from derisk_serve.building.config.models.models import ServeEntity
-                from derisk.storage.metadata import UnifiedDBManagerFactory
-                from derisk.component import ComponentType
                 from derisk._private.config import Config as DeriskConfig
-                import json
+                from derisk.component import ComponentType
+                from derisk.storage.metadata import UnifiedDBManagerFactory
+                from derisk_serve.building.config.models.models import ServeEntity
 
                 CFG = DeriskConfig()
                 system_app = CFG.SYSTEM_APP
@@ -787,8 +787,8 @@ class ConversableAgent(Role, Agent):
 
     async def _inject_default_tools(self, sandbox_enabled: bool = False):
         """注入默认工具（当无绑定配置时）"""
-        from ..tools.registry import tool_registry
         from ..tools.base import ToolCategory
+        from ..tools.registry import tool_registry
 
         # 文件系统工具
         file_tools = tool_registry.get_by_category(ToolCategory.FILE_SYSTEM)
@@ -959,6 +959,11 @@ class ConversableAgent(Role, Agent):
             )
 
             all_tool_messages: List[Dict] = []
+            _consecutive_tool_calls: Dict[str, int] = {}
+            _doom_loop_threshold: int = 5
+            _last_call_hash: str = ""
+            _last_tool_name: str = ""
+            _last_tool_args: Dict = {}
             while not done and self.current_retry_counter < self.max_retry_count:
                 with root_tracer.start_span(
                     "agent.generate_reply.loop",
@@ -1092,6 +1097,47 @@ class ConversableAgent(Role, Agent):
                                 act_reports_dict = [item.to_dict() for item in act_outs]
                             reply_message.action_report = action_report
                             span.metadata["action_report"] = act_reports_dict
+
+                            # Doom loop detection: track consecutive same-tool+same-args
+                            # calls. Use hash of (tool_name, args) to avoid
+                            # false positives when same tool is called with
+                            # different parameters (e.g. read different files)
+                            for act_out in action_report:
+                                _tool_name = act_out.action or act_out.name or ""
+                                if _tool_name and _tool_name != "blank":
+                                    _last_tool_name = _tool_name
+                                    _last_tool_args = (
+                                        act_out.action_input
+                                        if hasattr(act_out, "action_input")
+                                        else {}
+                                    )
+                                    import hashlib as _hl
+
+                                    _call_key = _hl.md5(
+                                        f"{_tool_name}:{json.dumps(_last_tool_args, sort_keys=True, ensure_ascii=False)}".encode()
+                                    ).hexdigest()[:16]
+                                    if _call_key == _last_call_hash:
+                                        _consecutive_tool_calls[_call_key] = (
+                                            _consecutive_tool_calls.get(_call_key, 0)
+                                            + 1
+                                        )
+                                    else:
+                                        _consecutive_tool_calls.pop(
+                                            _last_call_hash, None
+                                        )
+                                        _consecutive_tool_calls[_call_key] = 1
+                                        _last_call_hash = _call_key
+                                    if (
+                                        _consecutive_tool_calls[_call_key]
+                                        >= _doom_loop_threshold
+                                    ):
+                                        logger.warning(
+                                            f"Doom loop detected: tool '{_tool_name}' called "
+                                            f"{_consecutive_tool_calls[_call_key]} consecutive "
+                                            f"times with same args. Forcing termination."
+                                        )
+                                        done = True
+                                        break
                         await self.push_context_event(
                             EventType.AfterStepAction,
                             ActionPayload(action_output=action_report),
@@ -1226,11 +1272,88 @@ class ConversableAgent(Role, Agent):
                             break
                         ## Action明确结束的，成功后直接退出
                         if any([act_out.terminate for act_out in act_outs]):
-                            break
+                            # Prevent premature termination if the last tool
+                            # was reading a SKILL.md - reading a skill is a
+                            # preparatory step, not task completion
+                            _prev_was_skill_read = _last_tool_name in (
+                                "view",
+                                "read",
+                            ) and "SKILL.md" in str(_last_tool_args.get("path", ""))
+                            if _prev_was_skill_read:
+                                logger.warning(
+                                    f"[{self.name}] BlankAction terminate "
+                                    f"after SKILL.md read - preventing "
+                                    f"premature exit, continuing loop"
+                                )
+                            else:
+                                break
 
             reply_message.success = is_success
             # 6.final message adjustment
             await self.adjust_final_message(is_success, reply_message)
+
+            # When Function Calling loop exits without a final text response
+            # (e.g. doom loop termination, max_retry_count reached),
+            # reply_message.content may be empty because the last LLM call
+            # returned tool_calls instead of a text response.
+            # Force a final LLM call to generate the summary.
+            if not reply_message.content and self.enable_function_call:
+                logger.info(
+                    f"[{self.name}] Empty final content after FC loop, "
+                    f"forcing LLM summary generation"
+                )
+                try:
+                    summary_prompt = (
+                        "Based on the tool execution results above, "
+                        "please provide a comprehensive analysis and "
+                        "summary. Do NOT call any more tools - "
+                        "provide your final answer directly."
+                    )
+                    summary_messages = [msg for msg in all_tool_messages]
+                    summary_messages.append(
+                        {
+                            "role": "user",
+                            "content": summary_prompt,
+                        }
+                    )
+                    llm_model, llm_context = await self.select_llm_model(None)
+                    async for output in self.llm_client.create(
+                        context=None,
+                        messages=summary_messages,
+                        llm_model=llm_model,
+                        max_new_tokens=self.not_null_agent_context.max_new_tokens,
+                        temperature=self.not_null_agent_context.temperature,
+                        llm_context=llm_context,
+                        verbose=self.not_null_agent_context.verbose,
+                        staff_no=self.not_null_agent_context.staff_no,
+                    ):
+                        if output.content:
+                            reply_message.content = output.content
+                    if reply_message.content:
+                        logger.info(
+                            f"[{self.name}] Generated summary: "
+                            f"{len(reply_message.content)} chars"
+                        )
+                    elif reply_message.action_report:
+                        parts = []
+                        for act_out in reply_message.action_report:
+                            if act_out.content:
+                                parts.append(act_out.content)
+                        if parts:
+                            reply_message.content = "\n".join(parts)
+                            logger.info(
+                                f"[{self.name}] Fallback: synthesized content "
+                                f"from {len(parts)} action reports"
+                            )
+                except Exception as e:
+                    logger.warning(f"[{self.name}] Failed to generate summary: {e}")
+                    if reply_message.action_report:
+                        parts = []
+                        for act_out in reply_message.action_report:
+                            if act_out.content:
+                                parts.append(act_out.content)
+                        if parts:
+                            reply_message.content = "\n".join(parts)
 
             await self.push_context_event(
                 EventType.ChatEnd,
@@ -2173,10 +2296,10 @@ class ConversableAgent(Role, Agent):
                         f"沙箱尚未准备完成!({instance.sandbox_manager.client.provider}-{instance.sandbox_manager.client.sandbox_id})"
                     )
                 sandbox_client: SandboxBase = instance.sandbox_manager.client
+                from derisk.agent.core.sandbox.prompt import sandbox_prompt
                 from derisk.agent.core.sandbox.sandbox_tool_registry import (
                     sandbox_tool_dict,
                 )
-                from derisk.agent.core.sandbox.prompt import sandbox_prompt
 
                 sandbox_tool_prompts = []
                 for k, v in sandbox_tool_dict.items():
@@ -2690,8 +2813,8 @@ class ConversableAgent(Role, Agent):
             payload, PAYLOAD_TYPE[event_type]
         )
 
-        from derisk.context.utils import build_operator_config
         from derisk.context.operator import Operator, OperatorManager
+        from derisk.context.utils import build_operator_config
 
         operator_clss: list[Type[Operator]] = OperatorManager.operator_clss_by_type(
             event_type

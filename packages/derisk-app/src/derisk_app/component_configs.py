@@ -1,5 +1,6 @@
 import logging
 from typing import Optional
+
 from derisk.agent.resource.agent_skills import AgentSkillResource
 from derisk.agent.resource.workflow import WorkflowResource
 from derisk.component import SystemApp
@@ -7,12 +8,15 @@ from derisk.configs.model_config import MODEL_DISK_CACHE_DIR, resolve_root_path
 from derisk.util.executor_utils import DefaultExecutorFactory
 from derisk.vis.vis_manage import initialize_vis_convert
 from derisk_app.config import ApplicationConfig, ServiceWebParameters
+from derisk_ext.plugin.memory_case import MemoryCaseToolPack
+from derisk_ext.plugin.memory_case.integration import (
+    ensure_memory_case_resource_resolver_registered,
+)
+from derisk_serve.agent.resource.derisk_skill import DeriskSkillResource
 from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource
 from derisk_serve.agent.resource.tool.local_tool import LocalToolPack
 from derisk_serve.agent.resource.tool.mcp import MCPSSEToolPack
 from derisk_serve.agent.resource.tool.mcp_collect import MCPCollectSSEToolPack
-from derisk_serve.agent.resource.derisk_skill import DeriskSkillResource
-
 from derisk_serve.rag.storage_manager import StorageManager
 
 logger = logging.getLogger(__name__)
@@ -22,16 +26,17 @@ def initialize_components(
     param: ApplicationConfig,
     system_app: SystemApp,
 ):
+    ensure_memory_case_resource_resolver_registered()
     from derisk.model.cluster.controller.controller import controller
+    from derisk.sandbox import initialize_sandbox_adapter
     from derisk_app.initialization.embedding_component import (
         _initialize_embedding_model,
         _initialize_rerank_model,
     )
     from derisk_app.initialization.scheduler import DefaultScheduler
     from derisk_app.initialization.serve_initialization import register_serve_apps
-    from derisk_serve.datasource.manages.connector_manager import ConnectorManager
-    from derisk.sandbox import initialize_sandbox_adapter
     from derisk_serve.agent.agents.controller import multi_agents
+    from derisk_serve.datasource.manages.connector_manager import ConnectorManager
 
     web_config = param.service.web
     default_embedding_name = param.models.default_embedding
@@ -106,15 +111,14 @@ def _initialize_agent(system_app: SystemApp):
 
 def _initialize_resource_manager(system_app: SystemApp):
     from derisk.agent.expand.resources.derisk_tool import list_derisk_support_models
+    from derisk.agent.expand.resources.fetch_tool import fetch
     from derisk.agent.resource.base import ResourceType
     from derisk.agent.resource.manage import get_resource_manager, initialize_resource
+    from derisk.agent.resource.memory import MemoryResource
+    from derisk.agent.resource.reasoning_engine import ReasoningEngineResource
     from derisk_serve.agent.resource.app import GptAppResource
     from derisk_serve.agent.resource.datasource import DatasourceResource
     from derisk_serve.agent.resource.knowledge import KnowledgeSpaceRetrieverResource
-
-    from derisk.agent.resource.reasoning_engine import ReasoningEngineResource
-    from derisk.agent.resource.memory import MemoryResource
-    from derisk.agent.expand.resources.fetch_tool import fetch
 
     initialize_resource(system_app)
     rm = get_resource_manager(system_app)
@@ -126,6 +130,7 @@ def _initialize_resource_manager(system_app: SystemApp):
     # Register mcp tool
     rm.register_resource(MCPSSEToolPack, resource_type=ResourceType.Tool)
     rm.register_resource(MCPCollectSSEToolPack, resource_type=ResourceType.Tool)
+    rm.register_resource(MemoryCaseToolPack, resource_type=ResourceType.Tool)
     rm.register_resource(LocalToolPack, resource_type=ResourceType.Tool)
     rm.register_resource(AgentSkillResource)
     rm.register_resource(DeriskSkillResource)
@@ -136,18 +141,18 @@ def _initialize_resource_manager(system_app: SystemApp):
 
     # Register openderisk tool
     # Register Excel File to DB tools
-    from derisk_ext.agent.agents.open_ta.tools.xls_analysis import get_data_introduction
-    from derisk_ext.agent.agents.open_ta.tools.xls_analysis import run_sql_with_file
+    from derisk_ext.agent.agents.open_ta.tools.xls_analysis import (
+        get_data_introduction,
+        run_sql_with_file,
+    )
 
     rm.register_resource(resource_instance=get_data_introduction)
     rm.register_resource(resource_instance=run_sql_with_file)
 
     # Register Flamegraph analysis tools
     from derisk_ext.agent.agents.open_ta.tools.flamegraph_cpu_analyzer import (
-        flamegraph_overview,
-    )
-    from derisk_ext.agent.agents.open_ta.tools.flamegraph_cpu_analyzer import (
         flamegraph_drill_down,
+        flamegraph_overview,
     )
 
     rm.register_resource(resource_instance=flamegraph_overview)
@@ -198,7 +203,6 @@ def _initialize_openapi(system_app: SystemApp):
 def _initialize_operators():
     from derisk_app.operators.code import CodeMapOperator  # noqa: F401
     from derisk_app.operators.converter import StringToInteger  # noqa: F401
-
     from derisk_app.operators.llm import (  # noqa: F401
         HOLLMOperator,
         HOStreamingLLMOperator,
@@ -214,7 +218,7 @@ def _initialize_code_server(system_app: SystemApp):
 
 
 def _initialize_local_tool(system_app: SystemApp):
-    from derisk_serve.agent.resource.func_registry import central_registry
+    pass
     # central_registry.set_system_app(system_app)
 
 

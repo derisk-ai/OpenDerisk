@@ -2,14 +2,9 @@ import pytest
 
 from derisk.component import SystemApp
 from derisk.storage.metadata import db
-from derisk_serve.core import BaseServeConfig
-from derisk_serve.core.tests.conftest import (  # noqa: F401
-    asystem_app,
-    client,
-    config,
-    system_app,
-)
+from derisk_serve.core.tests.conftest import asystem_app, client, system_app  # noqa: F401
 
+from ..config import ServeConfig
 from ..service.service import Service
 
 
@@ -21,8 +16,8 @@ def setup_and_teardown():
 
 
 @pytest.fixture
-def service(system_app: SystemApp, config: BaseServeConfig):
-    instance = Service(system_app, config)
+def service(system_app: SystemApp):
+    instance = Service(system_app, ServeConfig())
     instance.init_app(system_app)
     return instance
 

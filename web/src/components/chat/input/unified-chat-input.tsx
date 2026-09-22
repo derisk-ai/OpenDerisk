@@ -1078,10 +1078,11 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     
     setUserInput('');
     setResourceValue(null);
-    setChatInParams(chatInParams.filter((i: ChatInParamItem) => 
-      i.param_type !== 'resource' || 
-      i.sub_type === 'skill(derisk)' || 
-      i.sub_type === 'mcp(derisk)'
+    setChatInParams(chatInParams.filter((i: ChatInParamItem) =>
+      i.param_type !== 'resource' ||
+      i.sub_type === 'skill(derisk)' ||
+      i.sub_type === 'mcp(derisk)' ||
+      i.sub_type === 'tool(memory_case)'
     ));
 
     await handleChat(newUserInput, {

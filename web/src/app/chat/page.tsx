@@ -359,14 +359,29 @@ if (fileResources.length > 0) {
         
         // Handle MCPs - convert to chat_in_params format
         if (initMessage.mcps && initMessage.mcps.length > 0) {
-          const mcpParams = initMessage.mcps.map((mcp: any) => ({
-            param_type: 'resource',
-            param_value: JSON.stringify({
-              mcp_code: mcp.id || mcp.uuid || mcp.mcp_code,
-              name: mcp.name,
-            }),
-            sub_type: 'mcp(derisk)',
-          }));
+          const mcpParams = initMessage.mcps.map((mcp: any) => {
+            const isBuiltin = mcp.is_builtin || mcp.category === 'builtin';
+
+            if (isBuiltin && (mcp.mcp_code === 'memory_case' || mcp.name === 'memory_case')) {
+              return {
+                param_type: 'resource',
+                param_value: JSON.stringify({
+                  name: mcp.name,
+                  mcp_name: mcp.name,
+                }),
+                sub_type: 'tool(memory_case)',
+              };
+            }
+
+            return {
+              param_type: 'resource',
+              param_value: JSON.stringify({
+                mcp_code: mcp.id || mcp.uuid || mcp.mcp_code,
+                name: mcp.name,
+              }),
+              sub_type: 'mcp(derisk)',
+            };
+          });
           finalChatInParams = [...finalChatInParams, ...mcpParams];
         }
         

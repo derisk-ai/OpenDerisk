@@ -1251,6 +1251,16 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         running_agents: Optional[List[str]] = None,
         cache: Optional[Any] = None,
     ):
+        if (
+            not senders_map
+            or main_agent_name is None
+            or main_agent_name not in senders_map
+        ):
+            logger.warning(
+                "vis_window3: skip _running_vis_build — missing senders_map or "
+                "main_agent_name (often after agent preload failure upstream)."
+            )
+            return None
         main_agent = senders_map[main_agent_name]
         conv_session_id = main_agent.agent_context.conv_session_id
 

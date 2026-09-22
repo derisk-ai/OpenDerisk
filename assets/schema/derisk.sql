@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-04-25 20:46:07
+-- Generated: 2026-05-07 14:50:52
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -594,6 +594,48 @@ CREATE TABLE IF NOT EXISTS `chat_feed_back` (
   KEY `idx_conv_uid` (`conv_uid`),
   KEY `idx_gmt_create` (`gmt_create`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: derisk_plugin_memory_case
+-- Source Model: MemoryCaseEntity
+CREATE TABLE IF NOT EXISTS `derisk_plugin_memory_case` (
+  `case_id` VARCHAR(255) NOT NULL,
+  `fingerprint` VARCHAR(512) NOT NULL,
+  `incident_title` VARCHAR(512) NULL,
+  `symptom_summary` TEXT NULL,
+  `hypotheses` TEXT NULL,
+  `actions` TEXT NULL,
+  `resolution` TEXT NULL,
+  `handling_path` TEXT NULL,
+  `root_cause` TEXT NULL,
+  `effectiveness` TEXT NULL,
+  `confidence` FLOAT NOT NULL,
+  `lifecycle` VARCHAR(64) NOT NULL,
+  `source_conv_id` VARCHAR(255) NULL,
+  `source_session_id` VARCHAR(255) NULL,
+  `markdown_summary` LONGTEXT NULL,
+  `metadata_json` LONGTEXT NULL,
+  `gmt_created` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`case_id`),
+  FULLTEXT KEY `ft_memory_case_nl` (
+    `symptom_summary`,
+    `markdown_summary`,
+    `resolution`,
+    `handling_path`,
+    `root_cause`,
+    `incident_title`,
+    `hypotheses`,
+    `actions`
+  )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Existing installs: if ft_memory_case_nl already exists with fewer columns, drop and recreate:
+-- ALTER TABLE derisk_plugin_memory_case DROP INDEX ft_memory_case_nl;
+-- ALTER TABLE derisk_plugin_memory_case ADD FULLTEXT INDEX ft_memory_case_nl (
+--   symptom_summary, markdown_summary, resolution, handling_path, root_cause, incident_title,
+--   hypotheses, actions);
 
 -- Table: prompt_manage
 -- Source Model: ServeEntity

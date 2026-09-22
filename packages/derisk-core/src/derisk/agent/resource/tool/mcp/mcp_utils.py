@@ -29,11 +29,76 @@ gpts_tool_messages_dao = GptsToolMessagesDao()
 CFG = Config()
 
 
+def _extract_mcp_json_schema_properties(input_schema: dict) -> tuple[dict, list]:
+    """Return (properties, required_field_names) from JSON Schema or loose MCP shapes."""
+    if not input_schema:
+        return {}, []
+
+    props_obj = input_schema.get("properties")
+    if isinstance(props_obj, dict):
+        req = input_schema.get("required", [])
+        if not isinstance(req, list):
+            req = []
+        return props_obj, list(req)
+
+    property_hint_keys = (
+        "type",
+        "title",
+        "description",
+        "default",
+        "enum",
+        "items",
+        "anyOf",
+        "oneOf",
+        "minimum",
+        "maximum",
+        "minimumLength",
+        "maximumLength",
+        "pattern",
+        "format",
+        "additionalProperties",
+        "properties",
+        "minItems",
+        "maxItems",
+    )
+    props: dict = {}
+    inferred_required: list = []
+    for key, maybe_frag in input_schema.items():
+        if key.startswith("$") or key in ("definitions", "$defs"):
+            continue
+        if not isinstance(maybe_frag, dict):
+            continue
+        if not any(h in maybe_frag for h in property_hint_keys):
+            continue
+        props[key] = maybe_frag
+        if maybe_frag.get("required") is True:
+            inferred_required.append(key)
+
+    if props:
+        root_req = input_schema.get("required", [])
+        if not isinstance(root_req, list):
+            root_req = []
+        merged = list(root_req)
+        for k in inferred_required:
+            if k not in merged:
+                merged.append(k)
+        return props, merged
+
+    if input_schema.get("type") == "object":
+        req = input_schema.get("required", [])
+        if isinstance(req, list):
+            return {}, list(req)
+        return {}, []
+
+    raise KeyError("properties")
+
+
 def switch_mcp_input_schema(input_schema: dict):
     args = {}
     try:
-        properties = input_schema["properties"]
-        required = input_schema.get("required", [])
+        if not input_schema:
+            return args
+        properties, required = _extract_mcp_json_schema_properties(input_schema)
         for k, v in properties.items():
             arg = {}
 
@@ -51,13 +116,15 @@ def switch_mcp_input_schema(input_schema: dict):
             if title:
                 arg["title"] = title
             arg["description"] = description or items_str or any_of_str or str(v)
-            arg["required"] = True if k in required else False
+            arg["required"] = (k in required) or (
+                isinstance(v.get("required"), bool) and v.get("required") is True
+            )
             if default:
                 arg["default"] = default
             args[k] = arg
         return args
     except Exception as e:
-        raise ValueError(f"MCP input_schema can't parase!{str(e)},{input_schema}")
+        raise ValueError(f"MCP input_schema can't parse!{str(e)},{input_schema}")
 
 
 async def get_mcp_tool_list(
