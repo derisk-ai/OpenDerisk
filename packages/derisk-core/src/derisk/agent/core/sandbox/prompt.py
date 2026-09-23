@@ -24,6 +24,7 @@ AGENT_SKILL_SYSTEM_PROMPT = """<agent_skill_system>
 **关键原则：**
 - 严格单线程：禁止并发加载多个 Skill
 - 按需延迟加载：只加载解决当前步骤所需的最简知识库
+- **读取不是完成**：读取 SKILL.md 后必须继续调用工具执行任务，禁止直接输出总结
 
 **脚本执行：** Skill 指示运行脚本时，原地执行（组合 SKILL.md 目录与脚本相对路径）。
 </agent_skill_system>"""

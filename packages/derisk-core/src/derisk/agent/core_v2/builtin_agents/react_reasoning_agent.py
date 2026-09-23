@@ -11,28 +11,24 @@ ReActReasoningAgent - 长程任务推理Agent
 7. 沙箱环境支持
 """
 
-from typing import AsyncIterator, Dict, Any, Optional, List
 import logging
-import json
 import time
-
-from .base_builtin_agent import BaseBuiltinAgent
-from ..agent_info import AgentInfo
-from ..llm_adapter import LLMAdapter, LLMConfig, LLMFactory
-from ..tools_v2 import ToolRegistry, ToolResult
-from ..sandbox_docker import SandboxManager
-from .react_components import (
-    DoomLoopDetector,
-    OutputTruncator,
-    ContextCompactor,
-    HistoryPruner,
-)
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 # 导入 PromptAssembler（通用 Prompt 组装模块）
 from ...shared.prompt_assembly import (
     PromptAssembler,
     PromptAssemblyConfig,
     ResourceContext,
+)
+from ..agent_info import AgentInfo
+from ..llm_adapter import LLMAdapter, LLMConfig, LLMFactory
+from ..sandbox_docker import SandboxManager
+from ..tools_v2 import ToolRegistry
+from .base_builtin_agent import BaseBuiltinAgent
+from .react_components import (
+    DoomLoopDetector,
+    OutputTruncator,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,7 +47,7 @@ def _get_sandbox_system_info(sandbox_client) -> str:
         elif system == "Linux":
             return f"Linux ({platform.processor()}), 本地沙箱环境，路径映射到项目目录"
         elif system == "Windows":
-            return f"Windows, 本地沙箱环境，路径映射到项目目录"
+            return "Windows, 本地沙箱环境，路径映射到项目目录"
         else:
             return f"{system}, 本地沙箱环境，路径映射到项目目录"
     else:
@@ -295,8 +291,8 @@ class ReActReasoningAgent(BaseBuiltinAgent):
 
         try:
             from derisk.agent.core.memory.compaction_pipeline import (
-                UnifiedCompactionPipeline,
                 HistoryCompactionConfig,
+                UnifiedCompactionPipeline,
             )
 
             session_id = self._session_id or self.info.name
@@ -549,10 +545,11 @@ class ReActReasoningAgent(BaseBuiltinAgent):
     async def _get_other_resources_prompt(self) -> str:
         """获取其他资源的提示词"""
         try:
+            from derisk_serve.agent.resource.tool.mcp import MCPToolPack
+
             from ...resource import BaseTool, RetrieverResource
             from ...resource.agent_skills import AgentSkillResource
             from ...resource.app import AppResource
-            from derisk_serve.agent.resource.tool.mcp import MCPToolPack
 
             excluded_types = (
                 BaseTool,
@@ -932,7 +929,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                 )
 
             # 返回响应
-            logger.info(f"[ReActReasoningAgent] LLM 返回纯文本回答，任务可能已完成")
+            logger.info("[ReActReasoningAgent] LLM 返回纯文本回答，任务可能已完成")
             return Decision(
                 type=DecisionType.RESPONSE,
                 content=content,
@@ -969,8 +966,12 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                 logger.warning(f"[ReActAgent] 检测到末日循环: {check_result.message}")
                 return ActionResult(
                     success=False,
-                    output=f"[警告] {check_result.message}",
+                    output=(
+                        f"[Doom Loop] Agent repeatedly called '{tool_name}' with "
+                        f"identical/similar parameters. Terminating to prevent infinite loop."
+                    ),
                     error="Doom loop detected",
+                    metadata={"doom_loop": True, "terminate": True},
                 )
 
         # 执行工具
@@ -1084,6 +1085,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
     ) -> "ReActReasoningAgent":
         """便捷创建方法 - 优先使用 ModelConfigCache 配置"""
         import os
+
         from derisk.agent.util.llm.model_config_cache import ModelConfigCache
 
         if not api_key or not api_base:
